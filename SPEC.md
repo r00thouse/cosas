@@ -96,10 +96,13 @@ kanidm system oauth2 update-scope-map cosas inventory_users openid profile
 # kanidm system oauth2 update-claim-map cosas role inventory_users admin
 
 # Optional: a real admin/reader split, decided in the app by OIDC_ADMIN_GROUP.
-# The `groups` scope must be granted, otherwise the token carries no group list.
+# Use the `groups_name` scope, not `groups`: Kanidm's `groups` scope puts uuids and
+# spns ("cosas_admin@idm.example.com") in the claim, `groups_name` puts plain names.
+# The app normalises all three shapes, but plain names are what `OIDC_ADMIN_GROUP`
+# compares against, so a bare name keeps the config obvious.
 kanidm group create cosas_admin
 kanidm group add-members cosas_admin <alice>
-kanidm system oauth2 update-scope-map cosas inventory_users openid profile groups
+kanidm system oauth2 update-scope-map cosas inventory_users openid profile groups_name
 #   then set OIDC_ADMIN_GROUP=cosas_admin in .env
 kanidm system oauth2 show-basic-secret cosas   # → OIDC_CLIENT_SECRET
 ```
@@ -246,14 +249,20 @@ from a template.
 6. `role`, first rule that matches:
    1. a `roles` claim (from a Kanidm claim map) decides both ways — contains `admin`
       → `admin`, otherwise `member`;
-   2. else, if `OIDC_ADMIN_GROUP` is set, membership of that group in `groups` →
-      `admin`, otherwise `member`;
+   2. else, if `OIDC_ADMIN_GROUP` is set, membership of that group in the `groups`
+      claim → `admin`, otherwise `member`;
    3. else `admin` (v1: everyone who got in is an admin).
 
-   `groups` alone is **not** treated as a role list: Kanidm sends real group names
-   (`inventory_users`, ...), so looking for the literal string `admin` among them
-   silently demoted every real deployment to read-only while the dev mock (whose
-   group happened to be called `admin`) kept working.
+   `groups` alone is **not** treated as a role list: Kanidm sends the user's real
+   groups (`inventory_users`, ...), so looking for the literal string `admin` among
+   them silently demoted every real deployment to read-only while the dev mock
+   (whose group happened to be called `admin`) kept working.
+
+   Kanidm shapes the claim by scope: `groups_name` → bare names, `groups` → uuids
+   *and* spns (`cosas_admin@idm.example.com`), `groups_spn` → spns only. The app
+   normalises every entry to a lowercase bare name before comparing (dropping
+   uuids), so all three scopes work; `groups_name` is the recommended one because
+   then `OIDC_ADMIN_GROUP` is literally the group name.
 
 ### 5.6 Escaping (mandatory)
 
@@ -1028,7 +1037,7 @@ Reserved (404): `/i`, `/api`, `/admin`, anything else not listed.
 | `OIDC_CLIENT_ID` | `cosas` | |
 | `OIDC_CLIENT_SECRET` | `<from kanidm>` | secret auth (confidential client) |
 | `OIDC_SCOPES` | `openid profile` (default) | optional; space-separated |
-| `OIDC_ADMIN_GROUP` | *(unset)* | optional Kanidm group whose members may write (§4.1/§5.3). Unset = anyone the IdP lets in is an admin |
+| `OIDC_ADMIN_GROUP` | *(unset)* | optional Kanidm group whose members may write (§4.1/§5.3), bare name like `cosas_admin`; works with the `groups`, `groups_name` and `groups_spn` scopes. Unset = anyone the IdP lets in is an admin |
 | `TRUST_PROXY` | `0` / `1` | `1` → trust `X-Forwarded-For` and `X-Forwarded-Proto` |
 | `LOG_LEVEL` | `info` | `debug` in dev |
 | `SKIP_DISCOVERY_CHECK` | *(unset)* | optional. `1` skips the boot-time discovery fetch (tests only) |

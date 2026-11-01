@@ -199,15 +199,31 @@ export class OidcClient {
  * "admin" — kept working.
  */
 export function roleFromClaims(claims, adminGroup = "") {
-  const list = (raw) => (Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[,\s]+/) : []).map((v) => String(v));
+  const list = (raw) =>
+    (Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[,\s]+/) : []).map((v) => String(v));
   const roles = claims.roles;
   if (roles !== undefined && roles !== null) {
     return list(roles).includes("admin") ? "admin" : "member";
   }
   if (adminGroup) {
-    return list(claims.groups).includes(adminGroup) ? "admin" : "member";
+    return groupNames(claims.groups).includes(adminGroup.trim().toLowerCase()) ? "admin" : "member";
   }
   return "admin";
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Kanidm's `groups` claim is shaped by the requested scope (§4.2): `groups_name`
+ * yields bare names, `groups` yields uuids AND spns, `groups_spn` yields spns.
+ * Normalise all three to lowercase bare names so one comparison works everywhere.
+ */
+export function groupNames(raw) {
+  const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[,\s]+/) : [];
+  return list
+    .map((v) => String(v).trim().toLowerCase())
+    .filter((v) => v && !UUID_RE.test(v))
+    .map((v) => v.replace(/@.*$/, ""));
 }
 
 /** PKCE pair (§4.3): 32 random bytes -> 43-char base64url verifier, S256 challenge. */
