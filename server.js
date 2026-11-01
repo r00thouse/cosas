@@ -5,19 +5,20 @@
 // a 302 (or 409/410/422 with the same shell as every other page, §9.5).
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { join, normalize, extname, sep, dirname } from "node:path";
+import { join, normalize, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
 import { loadConfig } from "./config.js";
 import { openDb, log } from "./db/index.js";
 import { createStore, Conflict, STATUSES, QTY_MODES } from "./store.js";
-import { normalize as normalizeCode, parse as parseCode } from "./code.js";
-import { parseSheetQuery, sheetCodes, freshCode, readCounter, stickerUrl } from "./codes.js";
+import { normalize as normalizeCode, parse as parseCode, normalizeScan } from "./code.js";
+import { parseSheetQuery, sheetCodes, freshCode, stickerUrl } from "./codes.js";
+import { boundaryOf, parseMultipart, MultipartError } from "./multipart.js";
+import { MAX_PHOTO, parseDataUrl, savePhoto, removePhoto, photoFile, sniff, collectGarbage } from "./photos.js";
 import { makeT, pickLang, LANGS } from "./i18n.js";
 import { sign, unsign, csrfFor, csrfValid, newSecret, clientIp, createLimiter } from "./security.js";
 import { OidcClient, pkcePair, safeNext, OidcError } from "./oidc.js";
-import { qrMatrix, matrixToSvg } from "./qrcode.js";
 import * as V from "./views.js";
 import { html } from "./html.js";
 
@@ -36,6 +37,18 @@ const SESSION_TTL_S = 8 * 60 * 60;
 const TX_TTL_S = 10 * 60;
 const PAGE_SIZE = 50;
 const MAX_QTY = 100000;
+// A photo upload is the only large body: 8 MB of bytes plus multipart overhead,
+// with room for the phone's base64 fallback (~4/3 of the image).
+const MAX_BODY = 12 * 1024 * 1024;
+
+/** Static files served from the repo root, outside the /static/ prefix (§5.2). */
+// Served from the repo root rather than public/: the PWA files must answer on "/" to
+// own the whole scope, and the QR decoder is a plain browser build of an npm package.
+const ROOT_FILES = {
+  "/manifest.webmanifest": { file: join(PUBLIC_DIR, "manifest.webmanifest"), type: "application/manifest+json", cache: "no-cache" },
+  "/sw.js": { file: join(PUBLIC_DIR, "sw.js"), type: "text/javascript; charset=utf-8", cache: "no-cache" },
+  "/vendor/jsQR.js": { file: join(HERE, "node_modules/jsqr/dist/jsQR.js"), type: "text/javascript; charset=utf-8", cache: "public, max-age=86400" },
+};
 
 /** `meta` rides along for the error page (e.g. the item holding a taken code). */
 export class HttpError extends Error {
@@ -123,17 +136,57 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
 
   // ---------------------------------------------------------------- helpers
 
-  async function readForm(req) {
+  /** The whole request body, capped. Photos are the only big ones (§8.8). */
+  async function readBody(req) {
+    const declared = Number(req.headers["content-length"] || 0);
+    if (declared > MAX_BODY) throw new HttpError(413, "err.photo_too_big");
     const chunks = [];
     let size = 0;
     for await (const chunk of req) {
       size += chunk.length;
-      if (size > 64 * 1024) throw new HttpError(413, "err.internal");
+      if (size > MAX_BODY) throw new HttpError(413, "err.photo_too_big");
       chunks.push(chunk);
     }
-    const form = {};
-    for (const [k, v] of new URLSearchParams(Buffer.concat(chunks).toString("utf8"))) form[k] = v;
-    return form;
+    return Buffer.concat(chunks);
+  }
+
+  /** A POST body -> { fields, files }. Accepts urlencoded and multipart (§5.4). */
+  async function readForm(req) {
+    const type = String(req.headers["content-type"] || "");
+    const body = await readBody(req);
+    if (type.toLowerCase().startsWith("multipart/form-data")) {
+      const boundary = boundaryOf(type);
+      if (!boundary) throw new HttpError(400, "err.internal");
+      try {
+        const { fields, files } = parseMultipart(body, boundary, { maxFile: MAX_PHOTO });
+        return { fields, files };
+      } catch (e) {
+        if (e instanceof MultipartError && e.code === "file_too_large") throw new HttpError(413, "err.photo_too_big");
+        throw new HttpError(400, "err.internal");
+      }
+    }
+    const fields = {};
+    for (const [k, v] of new URLSearchParams(body.toString("utf8"))) fields[k] = v;
+    return { fields, files: {} };
+  }
+
+  /**
+   * The photo of a form: an uploaded file, the phone's downscaled `photo_data`
+   * data-URL, or nothing. Throws 422 when the bytes are not JPEG/PNG/WebP.
+   */
+  function readPhoto(form, files) {
+    const upload = files && files.photo;
+    const bytes =
+      upload && upload.bytes && upload.bytes.length
+        ? upload.bytes
+        : form.photo_data
+          ? parseDataUrl(form.photo_data)
+          : null;
+    if (!bytes) return null;
+    if (bytes.length > MAX_PHOTO) throw new HttpError(413, "err.photo_too_big");
+    const kind = sniff(bytes);
+    if (!kind) throw new HttpError(422, "err.bad_photo");
+    return { bytes, ext: kind.ext };
   }
 
   /** Item fields from a form (§8.2). Returns {values, errors}. */
@@ -190,6 +243,7 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     const f = url.searchParams.get("flash");
     if (f === "+1") return "action.qty_plus";
     if (f === "-1") return "action.qty_minus";
+    if (f === "photo") return "action.photo_saved";
     return null;
   }
 
@@ -240,12 +294,30 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     renderItem(req, res, 200, session, { item: r.item, code: r.item.code, editing, confirm: okConfirm, url });
   }
 
-  function postRegister(req, res, session, { code: codeParam, form }) {
+  /** `GET /add` (§8.9): the phone's scan page, or the no-JS `?code=` fallback. */
+  function handleAdd(req, res, session, url) {
+    const c = ctxFor(req, session);
+    if (url.searchParams.has("code")) {
+      const code = normalizeScan(url.searchParams.get("code"));
+      if (code && parseCode(cfg.codeSecret, code)) return redirect(res, `/r/${code.toLowerCase()}`);
+      return sendHtml(req, res, 422, V.scanPage(c, { error: "scan.not_found" }));
+    }
+    return sendHtml(req, res, 200, V.scanPage(c, {}));
+  }
+
+  async function postRegister(req, res, session, { code: codeParam, form, files }) {
     const r = resolveOr404(codeParam);
     if (r.state === "deleted") throw new HttpError(410, "scan.deleted");
     if (r.state !== "free") throw new HttpError(409, "err.code_taken", { existing: r.item });
     const c = ctxFor(req, session);
     const { values, errors } = readItemFields(form);
+    let photo = null;
+    try {
+      photo = readPhoto(form, files);
+    } catch (e) {
+      if (!(e instanceof HttpError)) throw e;
+      errors.photo = e.key;
+    }
     if (Object.keys(errors).length) {
       return sendHtml(req, res, 422, V.registerPage(c, { code: r.parsed.code, values, errors }));
     }
@@ -261,8 +333,45 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
       }
       throw new HttpError(409, "err.code_taken", { existing });
     }
-    log("info", "item.register", { code: item.code, actor: session.sub });
+    if (photo) {
+      const name = await savePhoto(cfg.photoDir, item.id, photo.bytes, photo.ext);
+      item = store.setPhoto(item.id, item.code, name, session.sub);
+    }
+    log("info", "item.register", { code: item.code, actor: session.sub, photo: Boolean(photo) });
     redirect(res, `/r/${item.code.toLowerCase()}`);
+  }
+
+  /** `POST /r/:code/photo` (§8.8): add, replace, or clear the item's photo. */
+  async function postPhoto(req, res, session, { code: codeParam, form, files }) {
+    const { item } = boundOr410(codeParam);
+    const home = `/r/${item.code.toLowerCase()}`;
+    if (form.remove_photo === "1") {
+      store.setPhoto(item.id, item.code, "", session.sub);
+      await removePhoto(cfg.photoDir, item.photo);
+      log("info", "item.photo_remove", { code: item.code, actor: session.sub });
+      return redirect(res, `${home}?flash=photo`);
+    }
+    const photo = readPhoto(form, files);
+    if (!photo) throw new HttpError(422, "err.bad_photo");
+    const name = await savePhoto(cfg.photoDir, item.id, photo.bytes, photo.ext);
+    store.setPhoto(item.id, item.code, name, session.sub);
+    await removePhoto(cfg.photoDir, item.photo);
+    log("info", "item.photo", { code: item.code, bytes: photo.bytes.length, actor: session.sub });
+    redirect(res, `${home}?flash=photo`);
+  }
+
+  /** `GET /photo/:code` (§8.8): the bytes of the item's photo, admins only. */
+  async function handlePhoto(req, res, session, url, codeParam) {
+    const { item } = boundOr410(codeParam);
+    const f = item.photo ? photoFile(cfg.photoDir, item.photo) : null;
+    if (!f) throw new HttpError(404, "err.not_found");
+    let data;
+    try {
+      data = await readFile(f.path);
+    } catch {
+      throw new HttpError(404, "err.not_found");
+    }
+    send(req, res, 200, data, { "content-type": f.mime, "cache-control": "private, max-age=300" });
   }
 
   function postEdit(req, res, session, { code: codeParam, form }) {
@@ -328,7 +437,7 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     if (!item || item.deleted_at) throw new HttpError(409, "err.code_taken");
     let updated;
     try {
-      updated = store.rebind(item, freshCode(cfg.codeSecret, store.maxSeq() + 1), session.sub);
+      updated = store.rebind(item, freshCode(cfg.codeSecret), session.sub);
     } catch (e) {
       if (e instanceof Conflict) throw new HttpError(409, "err.code_taken");
       throw e;
@@ -363,7 +472,7 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
   }
 
   function postItemsNew(req, res, session) {
-    const code = freshCode(cfg.codeSecret, store.maxSeq() + 1);
+    const code = freshCode(cfg.codeSecret);
     log("info", "item.new_code", { actor: session.sub });
     redirect(res, `/r/${code.toLowerCase()}`);
   }
@@ -377,31 +486,30 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
   }
 
   function svgFor(stickers) {
-    return V.sheetSvg(stickers, { matrixToSvg, qrMatrix, host: stickerHost() });
+    return V.sheetSvg(stickers, { host: stickerHost() });
   }
 
   function handleCodes(req, res, session, url) {
     const c = ctxFor(req, session);
-    const counterPath = join(cfg.dbPath === ":memory:" ? "." : dirname(cfg.dbPath), "codes.counter");
-    const sheet = parseSheetQuery(url.searchParams, readCounter(counterPath));
+    const sheet = parseSheetQuery(url.searchParams);
     if (sheet.mode === "range") return sendHtml(req, res, 422, V.errorPage(c, 422, "err.range"));
-    if (sheet.mode === "form") return sendHtml(req, res, 200, V.codesFormPage(c, { n: sheet.n, start: sheet.start }));
-    const stickers = sheetCodes(cfg.codeSecret, cfg.publicOrigin, sheet.start, sheet.n);
-    sendHtml(req, res, 200, V.codesSheetPage(c, { stickers, n: sheet.n, start: sheet.start }));
+    if (sheet.mode === "form") return sendHtml(req, res, 200, V.codesFormPage(c, { n: sheet.n }));
+    const stickers = sheetCodes(cfg.codeSecret, cfg.publicOrigin, sheet.n);
+    sendHtml(req, res, 200, V.codesSheetPage(c, { stickers, n: sheet.n }));
   }
 
   function handleCodesSvg(req, res, session, url) {
     // `/codes/svg?code=X` is the single sticker of X's page (§8.3); with `n` it is a sheet.
     if (url.searchParams.has("code") && !url.searchParams.has("n")) return handleStickerSvg(req, res, session, url);
-    const sheet = parseSheetQuery(url.searchParams, 0);
+    const sheet = parseSheetQuery(url.searchParams);
     if (sheet.mode !== "sheet") {
       const key = sheet.mode === "range" ? "err.range" : "err.not_found";
       return sendHtml(req, res, 422, V.errorPage(ctxFor(req, session), 422, key));
     }
-    const stickers = sheetCodes(cfg.codeSecret, cfg.publicOrigin, sheet.start, sheet.n);
+    const stickers = sheetCodes(cfg.codeSecret, cfg.publicOrigin, sheet.n);
     send(req, res, 200, svgFor(stickers), {
       "content-type": "image/svg+xml; charset=utf-8",
-      "content-disposition": `attachment; filename="cosas-stickers-${sheet.start}-${sheet.n}.svg"`,
+      "content-disposition": `attachment; filename="cosas-stickers-${sheet.n}.svg"`,
       "cache-control": "no-store",
     });
   }
@@ -419,7 +527,7 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
   }
 
   function handleExport(req, res) {
-    const cols = ["code", "name", "category", "model", "serial", "location", "status", "held_by", "qty", "notes", "created_at", "updated_at"];
+    const cols = ["code", "name", "category", "model", "serial", "location", "status", "held_by", "qty", "notes", "photo", "created_at", "updated_at"];
     const rows = db.prepare("SELECT * FROM items WHERE deleted_at IS NULL ORDER BY id").all();
     const lines = [cols.join(",")];
     for (const r of rows) lines.push(cols.map((k) => csvCell(r[k])).join(","));
@@ -508,6 +616,18 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     send(req, res, 200, data, { "content-type": MIME[ext], "cache-control": "public, max-age=3600" });
   }
 
+  /** `/manifest.webmanifest`, `/sw.js` and the vendored QR decoder. */
+  async function handleRootFile(req, res, pathname) {
+    const spec = ROOT_FILES[pathname];
+    let data;
+    try {
+      data = await readFile(spec.file);
+    } catch {
+      throw new HttpError(404, "err.not_found");
+    }
+    send(req, res, 200, data, { "content-type": spec.type, "cache-control": spec.cache });
+  }
+
   // ---------------------------------------------------------------- routing
 
   // handler(req, res, session, url, params) — `auth`: anon | member (admin role)
@@ -523,10 +643,16 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     ["POST", "/r/:code/edit", postEdit, "member"],
     ["POST", "/r/:code/status", postStatus, "member"],
     ["POST", "/r/:code/qty", postQty, "member"],
+    ["POST", "/r/:code/photo", postPhoto, "member"],
     ["POST", "/r/:code/rebind", postRebind, "member"],
     ["POST", "/r/:code/delete", postDelete, "member"],
     ["POST", "/r/:code/restore", postRestore, "member"],
+    ["GET", "/photo/:code", (req, res, s, url, p) => handlePhoto(req, res, s, url, p.code), "member"],
     ["POST", "/items/new", postItemsNew, "member"],
+    ["GET", "/add", (req, res, s, url) => handleAdd(req, res, s, url), "member"],
+    ["GET", "/manifest.webmanifest", (req, res, s, url) => handleRootFile(req, res, url.pathname), "anon"],
+    ["GET", "/sw.js", (req, res, s, url) => handleRootFile(req, res, url.pathname), "anon"],
+    ["GET", "/vendor/jsQR.js", (req, res, s, url) => handleRootFile(req, res, url.pathname), "anon"],
     ["GET", "/export.csv", (req, res) => handleExport(req, res), "member"],
     ["GET", "/codes", (req, res, s, url) => handleCodes(req, res, s, url), "member"],
     ["GET", "/codes/svg", (req, res, s, url) => handleCodesSvg(req, res, s, url), "member"],
@@ -562,11 +688,12 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     return null;
   }
 
-  // SPEC.md §5.2, byte for byte: the CSP denies everything that is not listed, so a
-  // page can only load its own stylesheet, scripts and images (data: for the QR canvas).
+  // SPEC.md §5.2: the CSP denies everything that is not listed, so a page can only
+  // load its own stylesheet, scripts and images. connect-src is for the qty fetch,
+  // manifest-src/worker-src for the PWA (§8.10), media-src for the camera stream.
   const SECURITY_HEADERS = {
     "content-security-policy":
-      "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+      "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; media-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
     "x-content-type-options": "nosniff",
     "x-frame-options": "DENY",
     "referrer-policy": "no-referrer",
@@ -590,8 +717,11 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
 
     const session = sessions.read(req);
     let form = {};
+    let files = {};
     if (req.method === "POST") {
-      form = await readForm(req);
+      const parsed = await readForm(req);
+      form = parsed.fields;
+      files = parsed.files;
       if (!csrfValid(cfg.sessionSecret, cookie(req, COOKIE.session), form._csrf)) {
         log("warn", "csrf.rejected", { path: url.pathname, session: Boolean(session) });
         throw new HttpError(403, "err.csrf");
@@ -602,7 +732,7 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     const wantsJson = String(req.headers.accept || "").includes("application/json");
     // The sticker is whichever code the URL carries, so every handler that needs it
     // passes it explicitly instead of relying on a shared argument position.
-    if (route.method === "POST") return route.handler(req, res, session, { ...route.params, form, wantsJson });
+    if (route.method === "POST") return route.handler(req, res, session, { ...route.params, form, files, wantsJson });
     return route.handler(req, res, session, url, route.params);
   }
 
@@ -636,9 +766,7 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
             const ex = e.meta.existing;
             extra = html`<p><a href="/r/${ex.code.toLowerCase()}">${ex.name || V.paddedCode(ex.code)}</a></p>`;
           } else if (e.key === "err.code_taken") {
-            extra = html`<p>${c.t("err.code_taken")}</p><p><a href="/">${c.t("nav.home")}</a></p>`;
-          } else if (e.key === "err.rate_limited") {
-            extra = html`<p><a href="/">${c.t("nav.home")}</a></p>`;
+            extra = html`<p>${c.t("err.code_taken")}</p>`;
           }
           return sendHtml(req, res, e.status, V.errorPage(c, e.status, e.key, extra));
         } catch (inner) {
@@ -697,7 +825,14 @@ if (process.argv[1] && normalize(process.argv[1]) === normalize(fileURLToPath(im
   const db = openDb(cfg.dbPath);
   const oidc = new OidcClient(cfg, log);
   await oidc.init();
-  const { server } = createApp(cfg, { db, oidc });
+  const { server, store } = createApp(cfg, { db, oidc });
+  // Drop photo files no row points at (e.g. a crash between write and COMMIT, §8.8).
+  try {
+    const removed = await collectGarbage(cfg.photoDir, store.photoNames());
+    if (removed) log("info", "photos.collected", { removed });
+  } catch (err) {
+    log("warn", "photos.collect_failed", { error: String(err && err.message) });
+  }
   server.listen(cfg.port, () => log("info", "listening", { port: cfg.port, origin: cfg.publicOrigin }));
   const stop = () => server.close(() => process.exit(0));
   process.on("SIGTERM", stop);

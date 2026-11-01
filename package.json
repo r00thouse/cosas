@@ -8,8 +8,15 @@
   },
   "scripts": {
     "start": "node server.js",
+    "dev": "node --env-file-if-exists=.dev/env --watch server.js",
+    "mock-idp": "node tools/mock-idp/server.js",
     "gen-codes": "node tools/gen-codes.js",
-    "test": "node --test tools/test/code.test.js",
+    "gen-icons": "node tools/gen-icons.js",
+    "test": "node --test tools/test/code.test.js tools/test/upload.test.js tools/test/qr.test.js",
     "test:e2e": "node --test tools/test/e2e.test.js"
+  },
+  "dependencies": {
+    "jsqr": "1.4.0",
+    "qrcode-generator": "1.5.0"
   }
 }

@@ -1,48 +1,51 @@
 #!/usr/bin/env bash
-# dev.sh powers on everything needed to test the system locally:
-# the app container + the mock Kanidm IdP container, on one compose project,
-# with a dev SQLite file in ./dev-data and dev secrets from compose.dev.yaml.
+# dev.sh runs the whole thing on your machine, no container build:
+# the app (node --watch) and the mock Kanidm IdP as two background processes,
+# with a dev SQLite file in ./dev-data and dev secrets in .dev/env.
 #
-#   ./dev.sh                  up: build, start everything, wait until healthy
-#   ./dev.sh up [--build]     same (it IS the default action)
-#   ./dev.sh down             stop and remove the containers (dev-data/ is kept)
+#   ./dev.sh                  up: start both processes, wait until healthy
+#   ./dev.sh up               same (the default action)
+#   ./dev.sh down             stop both processes (dev-data/ is kept)
 #   ./dev.sh reset            erase dev-data/ (items, codes, sessions) and start fresh
-#   ./dev.sh logs [svc]       follow logs (svc = app | mock-idp)
+#   ./dev.sh logs [app|idp]   follow the logs (default: both)
 #   ./dev.sh ps               what is running
 #   ./dev.sh test             HTTP smoke test of the running stack (TESTING.md §4.1)
-#   ./dev.sh shell            shell inside the app container
-#   ./dev.sh doctor           check prerequisites and the merge of compose files
-#   ./dev.sh code <start> [n] print the sticker codes a sheet would carry (no app needed)
+#   ./dev.sh doctor           check prerequisites, ports and env
+#   ./dev.sh code [n]        print n fresh sticker codes (no app needed)
 #
-# Podman users: put `podman compose` in COMPOSE_CMD instead of docker compose.
+# Edits to server-side files reload on save (node --watch). Edits to public/*.css and
+# public/*.js need only a browser reload: they are served straight from disk, and the
+# service worker only caches /static/* on a first visit.
+# No .env file is required: every value the dev stack needs is written to .dev/env,
+# which `npm run dev` reads as well (node --env-file).
+# Needs node 24+, curl and setsid (Linux). On macOS there is no setsid: run
+# `npm run mock-idp` and `npm run dev` in two terminals instead.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP_URL=http://localhost:8080
-IDP_URL=http://localhost:9000
-# merged prod + dev files, exactly as SPEC.md §10.2 describes
-# override the runtime with e.g. COMPOSE_CMD="podman compose" ./dev.sh up
-read -r -a COMPOSE <<<"${COMPOSE_CMD:-docker compose}"
-# Legacy builder by default: buildx writes state under ~/.docker, which is read-only on
-# some (sandboxed/CI) hosts and fails the build with a confusing message. Override with
-# DOCKER_BUILDKIT=1 ./dev.sh up --build if you want buildx features.
-export DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-0}"
-COMPOSE+=(-f compose.yaml -f compose.dev.yaml)
-# compose.yaml declares `env_file: .env` (a file that holds prod secrets and does not
-# exist in a fresh clone). The dev overlay sets every value the app needs, so an empty
-# placeholder is enough — and it is removed again on exit.
-MADE_ENV=0
-[[ -f .env ]] || { : > .env; MADE_ENV=1; trap '((MADE_ENV)) && rm -f .env' EXIT; }
+APP_PORT=${APP_PORT:-8080}
+IDP_PORT=${IDP_PORT:-9010}
+APP_URL=http://localhost:$APP_PORT
+IDP_URL=http://localhost:$IDP_PORT
+DEV_DIR=.dev
+DATA_DIR=dev-data
+DB_FILE=$DATA_DIR/cosas.dev.db
+WATCH=${WATCH:-1}
 
 say()  { printf '\033[1m%s\033[0m\n' "$*"; }
 ok()   { printf '  \033[32mok\033[0m   %s\n' "$*"; }
 warn() { printf '  \033[33mwarn\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[31mfail\033[0m %s\n' "$*" >&2; exit 1; }
 
-require_runtime() {
-  command -v "${COMPOSE[0]}" >/dev/null || die "${COMPOSE[0]} not found — install it, or set COMPOSE_CMD (see TESTING.md §1)"
-  "${COMPOSE[0]}" info >/dev/null 2>&1 || die "cannot talk to the ${COMPOSE[0]} daemon — is it running and may this user use it? (TESTING.md §1)"
+# ---- process bookkeeping ---------------------------------------------------
+pid_of() { # $1 = app | idp → prints the pid when the process is alive
+  local f=$DEV_DIR/$1.pid pid
+  [[ -f $f ]] || return 1
+  pid=$(cat "$f" 2>/dev/null || true)
+  [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null && printf '%s' "$pid"
 }
+
+port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 
 # Wait until URL answers with any HTTP status < 500. $1=url $2=seconds $3=label
 wait_for() {
@@ -55,91 +58,210 @@ wait_for() {
   return 1
 }
 
-cmd_up() {
-  require_runtime
-  command -v curl >/dev/null || die "curl not found"
-  if [[ ! -f server.js ]]; then
-    die "no server.js yet — the app is still spec-only (SPEC.md §13 step 4)."$'\n'"Run './dev.sh code 0 5' for a sticker sheet that needs no app."
+tail_log() { # $1 = app | idp
+  local f=$DEV_DIR/$1.log
+  printf '\n--- last 25 %s lines ---\n' "$1"
+  if [[ -f $f ]]; then tail -n 25 "$f"; else printf '(no log)\n'; fi
+}
+
+require_node() {
+  command -v node >/dev/null || die "node not found — install Node 24 or newer (TESTING.md §1)"
+  local major
+  major=$(node -p 'process.versions.node.split(".")[0]')
+  (( major >= 24 )) || die "node $major found, need 24 or newer (node:sqlite and --watch are required)"
+  node -e "require('node:sqlite')" 2>/dev/null \
+    || die "this node has no node:sqlite — it is probably not an official Node 24+ build"
+}
+
+# Runtime dependencies (QR encode/decode only). Installed once, then reused.
+require_deps() {
+  if [[ -d node_modules/qrcode-generator && -d node_modules/jsqr ]]; then
+    return 0
   fi
-  mkdir -p dev-data
-  say "building and starting app + mock idp…"
-  "${COMPOSE[@]}" up -d --build "$@"
+  command -v npm >/dev/null || die "npm not found — needed once to install qrcode-generator and jsqr"
+  say "installing npm dependencies (once)…"
+  npm install --no-audit --no-fund >"$DEV_DIR/npm-install.log" 2>&1 \
+    || { tail -n 20 "$DEV_DIR/npm-install.log"; die "npm install failed"; }
+}
 
-  say "waiting for services…"
-  wait_for "$IDP_URL/healthz" 60 "mock idp"          || { logs_tail; die "mock idp did not become healthy"; }
-  wait_for "$APP_URL/healthz" 90 "app /healthz"      || { logs_tail; die "app did not become healthy"; }
-  wait_for "$APP_URL/"       30 "app / renders"      || { logs_tail; die "app / is not answering"; }
+# The dev environment. Written to .dev/env as well, so `npm run dev` works on its
+# own after the first ./dev.sh up. Values mirror what the deploy compose sets.
+write_env() {
+  mkdir -p "$DEV_DIR"
+  chmod 700 "$DEV_DIR"
+  cat >"$DEV_DIR/env" <<EOF
+# Generated by ./dev.sh — dev only, never deploy. Overwritten on every ./dev.sh up.
+PORT=$APP_PORT
+PUBLIC_ORIGIN=$APP_URL
+DB_PATH=$DB_FILE
+PHOTO_DIR=$DATA_DIR/photos
+TRUST_PROXY=0
+OIDC_DISCOVERY_URL=$IDP_URL/oauth2/openid/cosas/.well-known/openid-configuration
+OIDC_ISSUER=$IDP_URL/oauth2/openid/cosas
+OIDC_CLIENT_ID=cosas
+OIDC_CLIENT_SECRET=dev-client-secret
+SESSION_SECRET=dev-session-secret-that-is-long-enough-000000
+CODE_SECRET=dev-code-secret-that-is-long-enough-0000000
+LOG_LEVEL=${LOG_LEVEL:-debug}
+EOF
+  chmod 600 "$DEV_DIR/env"
+}
 
+# ---- commands --------------------------------------------------------------
+cmd_up() {
+  require_node
+  command -v curl >/dev/null || die "curl not found"
+  command -v setsid >/dev/null || die "setsid not found (util-linux)"$'\n'"Use 'npm run dev' in one shell and 'node tools/mock-idp/server.js' in another if you have no setsid."
+  [[ -f server.js ]] || die "no server.js here — is this the repo root?"
+
+  if [[ -n $(pid_of app) && -n $(pid_of idp) ]]; then
+    say "already running"
+    wait_for "$IDP_URL/healthz" 10 "mock idp" || tail_log idp
+    wait_for "$APP_URL/healthz" 10 "app /healthz" || tail_log app
+    print_summary
+    return 0
+  fi
+
+  # stop a half-dead pair before restarting, so the ports are free
+  cmd_down >/dev/null 2>&1 || true
+  if port_busy $APP_PORT; then die "port $APP_PORT is busy — stop whatever listens there"; fi
+  if port_busy $IDP_PORT; then die "port $IDP_PORT is busy — stop whatever listens there"; fi
+
+  mkdir -p "$DATA_DIR" "$DEV_DIR"
+  require_deps
+  write_env
+
+  say "starting mock idp on :$IDP_PORT…"
+  setsid env \
+    PORT=$IDP_PORT \
+    MOCK_PUBLIC_URL=$IDP_URL \
+    MOCK_INTERNAL_URL=$IDP_URL \
+    MOCK_MODE=${MOCK_MODE:-ok} \
+    node tools/mock-idp/server.js >>"$DEV_DIR/idp.log" 2>&1 &
+  echo $! >"$DEV_DIR/idp.pid"
+  wait_for "$IDP_URL/healthz" 20 "mock idp" || { tail_log idp; die "mock idp did not become healthy"; }
+
+  say "starting app on :$APP_PORT…"
+  local node_cmd=(node --env-file="$DEV_DIR/env")
+  (( WATCH )) && node_cmd+=(--watch --watch-preserve-output)
+  node_cmd+=(server.js)
+  setsid "${node_cmd[@]}" >>"$DEV_DIR/app.log" 2>&1 &
+  echo $! >"$DEV_DIR/app.pid"
+  wait_for "$APP_URL/healthz" 30 "app /healthz" || { tail_log app; die "app did not become healthy"; }
+  wait_for "$APP_URL/" 10 "app / renders" || { tail_log app; die "app / is not answering"; }
+
+  print_summary
+}
+
+print_summary() {
+  local reload="watch OFF (WATCH=0)"
+  (( WATCH )) && reload="server files reload on save (node --watch)"
   cat <<EOF
 
   app        $APP_URL
-  mock idp   $IDP_URL   (dev only, no login form: every login succeeds as \`mockuser\`)
-  database   $(pwd)/dev-data/cosas.dev.db
-  logs       ./dev.sh logs app
+  mock idp   $IDP_URL   (dev only, no login form: every login succeeds as \`mockadmin\`)
+  database   $(pwd)/$DB_FILE
+  photos     $(pwd)/$DATA_DIR/photos
+  env        $DEV_DIR/env   (generated; \`npm run dev\` reads it too)
+  logs       ./dev.sh logs            ($DEV_DIR/app.log, $DEV_DIR/idp.log)
   stop       ./dev.sh down
 
+  $reload
   Next: ./dev.sh test   (smoke test)   then TESTING.md for the manual walk-through.
 EOF
 }
 
-logs_tail() {
-  printf '\n--- last 25 app lines ---\n'
-  "${COMPOSE[@]}" logs --no-color --tail 25 app 2>&1 || true
-}
-
 cmd_down() {
-  require_runtime
-  "${COMPOSE[@]}" down --remove-orphans
-  ok "stopped (dev-data/ kept; ./dev.sh up resumes, ./dev.sh reset wipes)"
+  local name pid stopped=0
+  for name in app idp; do
+    if pid=$(pid_of "$name"); then
+      # the pid is a session/group leader (setsid), so signal the whole group:
+      # that also stops the child process `node --watch` supervises
+      kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+      for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+      kill -KILL -- "-$pid" 2>/dev/null || true
+      stopped=1
+    fi
+    rm -f "$DEV_DIR/$name.pid"
+  done
+  if (( stopped )); then ok "stopped ($DATA_DIR/ kept; ./dev.sh up resumes, ./dev.sh reset wipes)"
+  else ok "nothing was running"; fi
 }
 
 cmd_reset() {
-  require_runtime
-  "${COMPOSE[@]}" down --remove-orphans >/dev/null 2>&1 || true
-  rm -rf dev-data
-  say "dev-data/ erased"
-  cmd_up --build "$@"
+  cmd_down >/dev/null 2>&1 || true
+  rm -rf "$DATA_DIR"
+  say "$DATA_DIR/ erased"
+  cmd_up
 }
 
-cmd_logs() { require_runtime; "${COMPOSE[@]}" logs -f --tail 50 "$@"; }
-cmd_ps()   { require_runtime; "${COMPOSE[@]}" ps -a; }
-cmd_shell() { require_runtime; "${COMPOSE[@]}" exec app sh; }
+cmd_logs() {
+  local which=${1:-all}
+  case "$which" in
+    app) exec tail -n 50 -f "$DEV_DIR/app.log" ;;
+    idp|mock-idp) exec tail -n 50 -f "$DEV_DIR/idp.log" ;;
+    all) exec tail -n 30 -f "$DEV_DIR/app.log" "$DEV_DIR/idp.log" ;;
+    *) die "logs takes app, idp or nothing (got '$which')" ;;
+  esac
+}
+
+cmd_ps() {
+  local name pid
+  for name in app idp; do
+    if pid=$(pid_of "$name"); then
+      printf '  %-4s pid %-8s running\n' "$name" "$pid"
+    else
+      printf '  %-4s %-12s stopped\n' "$name" ""
+    fi
+  done
+  printf '  ports: app %s, idp %s\n' \
+    "$(port_busy $APP_PORT && echo busy || echo free)" \
+    "$(port_busy $IDP_PORT && echo busy || echo free)"
+}
 
 cmd_doctor() {
   say "prerequisites"
-  for c in "${COMPOSE[0]}" curl bash node; do
+  if command -v node >/dev/null; then
+    ok "node $(node --version) ($(command -v node))"
+    if node -e "require('node:sqlite')" 2>/dev/null; then
+      ok "node:sqlite available"
+    else
+      warn "node:sqlite NOT available (need official Node 24+)"
+    fi
+  else
+    warn "node: NOT FOUND"
+  fi
+  for c in curl setsid npm; do
     if command -v "$c" >/dev/null; then ok "$c: $(command -v "$c")"; else warn "$c: NOT FOUND"; fi
   done
-  if "${COMPOSE[@]:0:2}" version >/dev/null 2>&1; then
-    ok "compose: $("${COMPOSE[@]:0:2}" version --short 2>/dev/null || "${COMPOSE[@]:0:2}" version)"
-  else
-    warn "compose (v2 plugin) for ${COMPOSE[0]} NOT FOUND"
-  fi
-  if "${COMPOSE[0]}" info >/dev/null 2>&1; then ok "${COMPOSE[0]} daemon reachable"; else warn "${COMPOSE[0]} daemon NOT reachable"; fi
+  for m in qrcode-generator jsqr; do
+    if [[ -d node_modules/$m ]]; then ok "node_modules/$m"; else warn "node_modules/$m missing (./dev.sh up runs npm install)"; fi
+  done
 
-  say "compose merge (prod + dev)"
-  local cfg appcfg mounts published
-  cfg=$("${COMPOSE[@]}" config 2>&1) \
-    || { warn "compose config failed:"; printf '%s\n' "$cfg" | sed 's/^/         /' >&2; return 0; }
-  ok "compose.yaml + compose.dev.yaml merge cleanly"
-  # services may render alphabetically with `app` last and nothing after it, hence the EOF sentinel
-  appcfg=$(printf '%s\n' "$cfg" | sed -n '/^  app:[[:space:]]*$/,/^  [^[:space:]]|^EOF/p')
-  mounts=$(printf '%s\n' "$appcfg" | grep -cE 'target:[[:space:]]*/data[[:space:]]*$' || true)
-  [[ $mounts == 1 ]] && ok "exactly one /data mount on app" || warn "/data mounts on app in merged config: $mounts (expected 1)"
-  published=$(printf '%s\n' "$appcfg" | grep -cE 'published:[[:space:]]*"?8080"?' || true)
-  [[ $published == 1 ]] && ok "app published once on :8080" || warn "app published $published time(s) on :8080 (expected 1)"
+  say "runtime state"
+  if [[ -n $(pid_of app) ]]; then ok "app running (pid $(pid_of app))"; else warn "app not running"; fi
+  if [[ -n $(pid_of idp) ]]; then ok "mock idp running (pid $(pid_of idp))"; else warn "mock idp not running"; fi
+  if port_busy $APP_PORT; then warn "port $APP_PORT busy"; else ok "port $APP_PORT free"; fi
+  if port_busy $IDP_PORT; then warn "port $IDP_PORT busy"; else ok "port $IDP_PORT free"; fi
+  if [[ -f $DEV_DIR/env ]]; then ok "$DEV_DIR/env present"; else warn "$DEV_DIR/env missing (created by ./dev.sh up)"; fi
+  if [[ -f $DB_FILE ]]; then ok "$DB_FILE ($(du -h "$DB_FILE" | cut -f1))"; else warn "$DB_FILE not created yet"; fi
 
   say "repo"
-  for f in SPEC.md compose.yaml compose.dev.yaml .env.example server.js tools/mock-idp/server.js public/qr.js; do
+  for f in SPEC.md compose.yaml server.js tools/mock-idp/server.js public/app.js package-lock.json; do
     if [[ -e $f ]]; then ok "$f"; else warn "$f missing"; fi
   done
+  if command -v docker >/dev/null; then
+    ok "docker present (only needed for the deploy image, not for ./dev.sh)"
+  else
+    warn "docker not found (fine for dev; needed for the deploy image)"
+  fi
 }
 
 # ---- HTTP smoke test -------------------------------------------------------
 # Mirrors the cheap, scriptable half of SPEC.md §12. Each check prints PASS/FAIL
 # and the script exits 1 if anything failed.
 cmd_test() {
-  require_runtime
+  require_node
   command -v curl >/dev/null || die "curl not found"
   local fails=0 jar
   jar=$(mktemp); trap 'rm -f "$jar"' RETURN
@@ -161,7 +283,7 @@ cmd_test() {
 
   check "12.2 anonymous / renders" 200 "$(code "$APP_URL/")"
 
-  # login: follow the OIDC redirect dance through the mock idp (auto-submit, no form)
+  # login: follow the OIDC redirect dance through the mock idp (no form, no password)
   curl -s -c "$jar" -b "$jar" -L -o /dev/null --max-time 10 "$APP_URL/login"
   grep -q 'session' "$jar" && ok "12.4 session cookie stored" || { warn "12.4 no session cookie in jar"; fails=$((fails + 1)); }
   local sec; sec=$(awk -F'\t' 'NF>=7 && $1=="localhost" && $6 ~ /session/ {print $4}' "$jar" | sort -u | tr '\n' ' ')
@@ -170,30 +292,49 @@ cmd_test() {
   # stickers
   local svg; svg=$(code -b "$jar" "$APP_URL/codes/svg?n=5")
   check "12.6 /codes/svg?n=5" 200 "$svg"
-  local c1 c2
-  c1=$(curl -s -b "$jar" --max-time 5 "$APP_URL/codes/svg?n=3&start=0" | sha256sum | cut -c1-16)
-  c2=$(curl -s -b "$jar" --max-time 5 "$APP_URL/codes/svg?n=3&start=0" | sha256sum | cut -c1-16)
-  check "12.6 codes are deterministic" "$c1" "$c2"
+  # Codes are random (§7.3): two sheets differ, and no two codes on a sheet repeat.
+  local s1 s2
+  s1=$(curl -s -b "$jar" --max-time 5 "$APP_URL/codes?n=5" | grep -o 'data-code="[0-9a-z]*"' | sort)
+  s2=$(curl -s -b "$jar" --max-time 5 "$APP_URL/codes?n=5" | grep -o 'data-code="[0-9a-z]*"' | sort)
+  check "12.6 a sheet has 5 distinct codes" 5 "$(printf '%s\n' "$s1" | sort -u | wc -l | tr -d ' ')"
+  if [[ $s1 == "$s2" ]]; then
+    warn "two generated sheets were identical — codes must be random"; fails=$((fails + 1))
+  else
+    ok "12.6 each sheet is freshly random"
+  fi
   check "12.6 /codes sheet page" 200 "$(code -b "$jar" "$APP_URL/codes?n=5")"
   check "12.6 /codes/svg without a session → 403" 403 "$(code "$APP_URL/codes/svg?n=1")"
 
   # The /r/* limiter (§5.4) also counts the OIDC hop back to the app, so let its
   # 60 s window roll over instead of failing the scan checks with a 429.
-  # Wait until the limiter lets a scan through (it may have just hit the 31-request cap).
   local waited=0
   while [[ $(code "$APP_URL/r/0000000000000000") == 429 ]] && (( waited < 65 )); do sleep 1; waited=$((waited + 1)); done
 
   # scan paths: member sees the register form on an unbound code, anon can't
   local first
-  first=$(CODE_SECRET=${CODE_SECRET:-dev-code-secret-that-is-long-enough-0000000} ./dev.sh code ${CODE_START:-1000000} 1 2>/dev/null | awk '{print $1}' | tr -d '-' | tr 'A-Z' 'a-z' || true)
-  if [[ -z $first ]]; then warn "could not compute a sticker code (node missing?)"; fails=$((fails + 1)); else
-    # codes are month-scoped (SPEC §7.3): CODE_START is the batch counter, not a month
+  first=$(CODE_SECRET=${CODE_SECRET:-dev-code-secret-that-is-long-enough-0000000} "$0" code 1 2>/dev/null | awk '{print $1}' | tr -d '-' | tr 'A-Z' 'a-z' || true)
+  if [[ -z $first ]]; then
+    warn "could not compute a sticker code (node missing?)"; fails=$((fails + 1))
+  else
+    # codes are month-scoped and random (SPEC §7.3): no counter, nothing to keep
     check "12.22 unbound code, anon → login prompt" 200 "$(code "$APP_URL/r/$first")"
     check "12.22 unbound code, member → register form" 200 "$(code -b "$jar" "$APP_URL/r/$first")"
     check "12.12 tampered code → 404" 404 "$(code "$APP_URL/r/${first%?}Z")"
     check "12.13 POST without CSRF → 403" 403 "$(code -b "$jar" -X POST "$APP_URL/r/$first/edit" -d 'name=x')"
   fi
   check "12.17 export.csv" 200 "$(code -b "$jar" "$APP_URL/export.csv")"
+
+  # PWA + phone add flow (§8.9, §8.10)
+  check "12.23 /manifest.webmanifest" 200 "$(code "$APP_URL/manifest.webmanifest")"
+  check "12.23 /sw.js" 200 "$(code "$APP_URL/sw.js")"
+  check "12.23 /static/icon-192.png" 200 "$(code "$APP_URL/static/icon-192.png")"
+  check "12.23 /add without a session → 403" 403 "$(code "$APP_URL/add")"
+  check "12.23 /add with a session → 200" 200 "$(code -b "$jar" "$APP_URL/add")"
+  if [[ -n $first ]]; then
+    local redir
+    redir=$(curl -s -o /dev/null -b "$jar" -w '%{http_code} %{redirect_url}' --max-time 5 "$APP_URL/add?code=$first")
+    check "12.23 /add?code= → 302 to the sticker" "302 $APP_URL/r/$first" "$redir"
+  fi
 
   # rate limit: 31 rapid reads of a valid-shaped code must end in 429 (§5.4)
   local last
@@ -204,26 +345,12 @@ cmd_test() {
   if (( fails == 0 )); then say "all smoke checks passed"; else die "$fails smoke check(s) failed (see TESTING.md §6)"; fi
 }
 
-# Sticker codes without the app: same formula as SPEC.md §7.5 batch generation,
-# using CODE_SECRET from the environment or the dev default from compose.dev.yaml.
+# Sticker codes without the app: the same generator as the print sheet (§7.4/§7.5),
+# using CODE_SECRET from the environment or the dev default.
 cmd_code() {
-  local start=${1:-0} n=${2:-1} secret=${CODE_SECRET:-dev-code-secret-that-is-long-enough-0000000}
-  CODE_SECRET=$secret CODE_START=$start CODE_COUNT=$n node --input-type=module -e '
-    import { createHmac } from "node:crypto";
-    const A = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-    const enc = (v, w) => Array.from({ length: w }, (_, i) => A[Math.floor(v / 32 ** (w - 1 - i)) % 32]).join("");
-    const secret = process.env.CODE_SECRET, start = +process.env.CODE_START, n = +process.env.CODE_COUNT;
-    const key = createHmac("sha256", secret).update("hacklab-cosas/code/v1").digest();
-    const mm = (() => { const d = new Date(); return (d.getUTCFullYear() - 2020) * 12 + d.getUTCMonth(); })();
-    for (let i = 0; i < n; i++) {
-      const h = createHmac("sha256", secret).update(`hacklab-cosas/batch/v1:${start}:${i}`).digest();
-      const nonce = h.readUIntBE(0, 3) >> 4;                       // first 20 bits
-      const body = enc(mm, 2) + enc(start + i, 6) + enc(nonce, 4);
-      const mac = createHmac("sha256", key).update("v1" + body).digest();
-      const tag = ((mac[0] << 16) | (mac[1] << 8) | mac[2]) >> 4;   // first 20 bits
-      const c = (body + enc(tag, 4)).toLowerCase();
-      console.log(`${c.slice(0,4)}-${c.slice(4,8)}-${c.slice(8,12)}-${c.slice(12,16)}  seq=${start + i}`);
-    }'
+  local n=${1:-1} secret=${CODE_SECRET:-dev-code-secret-that-is-long-enough-0000000}
+  CODE_SECRET=$secret PUBLIC_ORIGIN=${PUBLIC_ORIGIN:-http://localhost:${APP_PORT:-8080}} \
+    node tools/gen-codes.js "$n"
 }
 
 case "${1:-up}" in
@@ -232,7 +359,6 @@ case "${1:-up}" in
   reset)  shift || true; cmd_reset "$@" ;;
   logs)   shift; cmd_logs "$@" ;;
   ps|status)  cmd_ps ;;
-  shell)  cmd_shell ;;
   test)   cmd_test ;;
   doctor) cmd_doctor ;;
   code|codes) shift; cmd_code "$@" ;;

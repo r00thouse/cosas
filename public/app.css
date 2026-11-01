@@ -27,6 +27,8 @@
   }
 }
 * { box-sizing: border-box; }
+/* Author display rules below would otherwise beat the UA `hidden` rule. */
+[hidden] { display: none !important; }
 html { font-size: 16px; }
 body {
   margin: 0;
@@ -115,43 +117,134 @@ table.list th { color: var(--muted); font-weight: 500; font-size: 0.85rem; }
 dl.item { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0.75rem 0; }
 dl.item dt { color: var(--muted); }
 dl.item dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.qr { width: 8rem; height: 8rem; }
+.qr, svg.qr { width: 8rem; height: 8rem; }
 .qty-controls { display: inline-flex; gap: 0.35rem; align-items: center; }
 .qty-controls form { display: inline; }
 .code-panel { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
 .code-panel .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.1rem; }
 
-/* sticker sheet (§8.7): 60 x 30 mm stickers, 3 x 7 per A4 page */
+/* sticker sheet (§8.7): fluid on screen, 4 x 49.9 x 25 mm on paper */
 .sheet {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 60mm);
-  gap: 0.2mm;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 0.5rem;
   margin: 1rem 0;
 }
 .sticker {
-  width: 60mm;
-  height: 30mm;
   border: 0.2mm solid var(--line);
-  padding: 2mm;
+  padding: 0.5rem;
   display: grid;
-  grid-template-columns: 24mm 1fr;
-  gap: 2mm;
+  grid-template-columns: 5rem 1fr;
+  gap: 0.5rem;
   align-items: center;
   overflow: hidden;
 }
-.sticker canvas, .sticker img { width: 24mm; height: 24mm; image-rendering: pixelated; }
-.sticker .text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 8pt; line-height: 1.25; white-space: pre; }
-.sticker .host { font-size: 6pt; color: var(--muted); margin-top: 1mm; overflow-wrap: anywhere; }
+.sticker svg, .sticker img { width: 5rem; height: 5rem; image-rendering: pixelated; }
+.sticker .text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; line-height: 1.2; white-space: pre; }
+.sticker .host { font-size: 0.62rem; color: var(--muted); margin-top: 0.2rem; overflow-wrap: anywhere; }
 .sheet-form { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: end; margin-bottom: 0.5rem; }
 .sheet-form > * { flex: 0 0 8rem; }
 .sheet-form > button { flex: 0 0 auto; }
 
+/* §8.9: add-by-phone scanner. The video keeps a 4:3 box so the page does not jump
+   when the camera starts; the status line switches from hint to error text. */
+.scanner { border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem; margin: 1rem 0; }
+.scanner-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 60vh;
+  object-fit: cover;
+  background: #000;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+}
+.scan-manual { border-top: 1px solid var(--line); padding-top: 0.5rem; margin-top: 0.5rem; }
+
+/* §8.8: the item photo and the local preview of a picked file */
+.photo { display: block; max-width: 100%; max-height: 22rem; border-radius: 6px; }
+.photo-panel .actions { align-items: center; }
+.photo-preview { display: block; max-width: 100%; max-height: 12rem; border-radius: 6px; margin-top: 0.5rem; border: 1px solid var(--line); }
+.photo-panel label.radio { display: inline-flex; gap: 0.35rem; align-items: center; margin: 0.5rem 0; font-size: 1rem; color: var(--fg); }
+.photo-panel input[type="checkbox"] { width: auto; }
+
+/* §8.9: the Add shortcut is the one nav item a phone user looks for. */
+nav .nav-add {
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 0.05rem 0.6rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+/* Touch devices: every control is at least one finger tall (44 px). */
+@media (pointer: coarse) {
+  button, .button, input, select, textarea { min-height: 2.75rem; }
+  nav a, nav button.link { min-height: 2.75rem; display: inline-flex; align-items: center; }
+  .qty-controls button { min-width: 2.75rem; }
+  nav .nav-add { padding: 0 0.75rem; }
+}
+
+/* Phones: the list table becomes cards, the header stacks, panels lose their padding.
+   Every cell carries data-label from views.js, so the label stays visible. */
+@media (max-width: 40rem) {
+  .wrap { padding: 0.5rem 0.75rem calc(2.5rem + env(safe-area-inset-bottom)); }
+  .top { flex-direction: column; align-items: stretch; gap: 0.35rem; }
+  nav { gap: 0.25rem 1rem; }
+  h1 { font-size: 1.2rem; }
+  .panel { padding: 0.6rem 0.75rem; margin: 0.75rem 0; }
+  .row > * { flex: 1 1 100%; }
+  .filters > * { flex: 1 1 45%; }
+  .filters > button { flex: 1 1 100%; }
+
+  table.list thead { display: none; }
+  table.list, table.list tbody, table.list tr, table.list td { display: block; width: 100%; }
+  table.list tr { border: 1px solid var(--line); border-radius: 6px; padding: 0.4rem 0.6rem; margin-bottom: 0.5rem; }
+  table.list td { border: 0; padding: 0.1rem 0; display: flex; gap: 0.75rem; justify-content: space-between; align-items: baseline; }
+  table.list td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.8rem;
+    flex: 0 0 auto;
+  }
+  table.list td:empty { display: none; }
+  table.list td:first-child { border-bottom: 1px solid var(--line); padding-bottom: 0.25rem; margin-bottom: 0.25rem; font-weight: 600; }
+  table.list td:first-child a { text-decoration: none; }
+
+  dl.item { grid-template-columns: 1fr; gap: 0; }
+  dl.item dt { margin-top: 0.5rem; font-size: 0.85rem; }
+  .code-panel { gap: 0.75rem; }
+  .qty-controls { display: flex; flex-direction: column; align-items: stretch; gap: 0.5rem; }
+  .qty-controls form { display: flex; gap: 0.5rem; }
+  .qty-controls form > * { flex: 1 1 auto; }
+  .qr { width: 10rem; height: 10rem; }
+}
+
 @media print {
   @page { size: A4; margin: 5mm; }
+  /* Ctrl+P from /codes prints the stickers and nothing else (§8.7). */
   body { background: #fff; color: #000; }
-  .top, footer, .no-print { display: none !important; }
-  .wrap { max-width: none; padding: 0; }
-  .sheet { grid-template-columns: repeat(3, 60mm); margin: 0; }
-  .sticker { border-color: #ccc; break-inside: avoid; page-break-inside: avoid; }
-  .sticker .host { color: #000; }
+  .top, footer, .no-print, .actions, .filters, .pager, .sheet-form, .hint,
+  .flash, .error, .photo-panel, .qty-controls, button, .button {
+    display: none !important;
+  }
+  a { color: #000; text-decoration: none; }
+  .wrap { max-width: none; margin: 0; padding: 0; }
+  .panel { border: 0; padding: 0; }
+  /* 4 x 49.9 mm = 199.6 mm: a hair under the 200 mm printable width, so no browser
+     rounds the last column off the page. */
+  .sheet { width: 199.6mm; grid-template-columns: repeat(4, 49.9mm); margin: 0; gap: 0; }
+  .sticker {
+    width: auto;
+    height: 25mm;
+    padding: 1.5mm;
+    grid-template-columns: 20mm 1fr;
+    gap: 1.5mm;
+    border-color: #ccc;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .sticker svg, .sticker img { width: 20mm; height: 20mm; }
+  .sticker .text { font-size: 6.5pt; }
+  .sticker .host { font-size: 5pt; color: #000; }
 }

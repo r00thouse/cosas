@@ -5,7 +5,7 @@
 import { createServer } from "node:http";
 import { createECDH, createHash, createPrivateKey, createPublicKey, randomBytes, sign } from "node:crypto";
 
-const PORT = Number(process.env.PORT || 9000);
+const PORT = Number(process.env.PORT || 9010);
 const CLIENT_ID = process.env.MOCK_CLIENT_ID || "cosas";
 const CLIENT_SECRET = process.env.MOCK_CLIENT_SECRET || "dev-client-secret";
 const MOCK_PUBLIC_URL = (process.env.MOCK_PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
@@ -63,8 +63,8 @@ function discovery(req) {
   // Kanidm publishes ONE issuer; the app verifies `iss` against it. Kanidm tokens also
   // carry the host the browser used, so a host-less path must behave the same.
   //
-  // Two base URLs on purpose (dev only): the browser reaches us at :9000 through the
-  // published port, while the app container reaches us as mock-idp:9000. Endpoints the
+  // Two base URLs on purpose (dev only): the browser reaches us at :9010 through the
+  // published port, while the app container reaches us as mock-idp:9010. Endpoints the
   // browser calls use MOCK_PUBLIC_URL; endpoints the app calls use MOCK_INTERNAL_URL.
   const base = PUBLIC_URL;
   const internal = INTERNAL_URL;

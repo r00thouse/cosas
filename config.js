@@ -1,5 +1,7 @@
 // All settings come from the environment (SPEC.md §10.1). No dotenv dependency:
 // the containers get their values from Compose; local runs get them from the shell.
+import { dirname, join } from "node:path";
+
 export function loadConfig(env = process.env) {
   const num = (key, dflt) => {
     const v = env[key] === undefined || env[key] === "" ? dflt : Number(env[key]);
@@ -14,10 +16,12 @@ export function loadConfig(env = process.env) {
     port: num("PORT", 8080),
     publicOrigin: (env.PUBLIC_ORIGIN || "http://localhost:8080").replace(/\/+$/, ""),
     dbPath: env.DB_PATH || "data/cosas.db",
+    // Item photos live next to the database by default (§8.8); PHOTO_DIR overrides.
+    photoDir: env.PHOTO_DIR || join(dirname(env.DB_PATH || "data/cosas.db"), "photos"),
     sessionSecret: env.SESSION_SECRET || "dev-session-secret-that-is-long-enough-000000",
     codeSecret: env.CODE_SECRET || "dev-code-secret-that-is-long-enough-0000000",
     oidcDiscoveryUrl:
-      env.OIDC_DISCOVERY_URL || "http://localhost:9000/oauth2/openid/cosas/.well-known/openid-configuration",
+      env.OIDC_DISCOVERY_URL || "http://localhost:9010/oauth2/openid/cosas/.well-known/openid-configuration",
     oidcClientId: env.OIDC_CLIENT_ID || "cosas",
     oidcClientSecret: env.OIDC_CLIENT_SECRET || "dev-client-secret",
     oidcScopes: env.OIDC_SCOPES || "openid profile",

@@ -16,6 +16,10 @@ const SECRETS = {
   CODE_SECRET: "test-code-secret-that-is-long-enough-00000",
 };
 
+// Just enough bytes for the server's magic-number check; content never parsed.
+const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64, 0x11), Buffer.from([0xff, 0xd9])]);
+const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32, 0x22)]);
+
 let dir;
 let app;
 let idp;
@@ -42,7 +46,7 @@ function client() {
 }
 
 const csrfOf = (res) => (res.text.match(/name="_csrf" value="([^"]+)"/) || [])[1];
-const codesOf = (res) => [...res.text.matchAll(/data-qr="[^"]*\/r\/([0-9a-z]+)"/g)].map((m) => m[1]);
+const codesOf = (res) => [...res.text.matchAll(/class="sticker" data-code="([0-9a-z]+)"/g)].map((m) => m[1]);
 
 function form(fields) {
   return { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(fields).toString() };
@@ -103,8 +107,6 @@ before(async () => {
 });
 
 after(async () => {
-  const { copyFileSync } = await import("node:fs");
-  try { const { copyFileSync: cp } = await import("node:fs"); cp(join(dir, "cosas.db"), "/tmp/mkded/cosas.db"); cp(join(dir, "cosas.db-wal"), "/tmp/mkded/cosas.db-wal"); } catch {}
   app?.kill("SIGKILL");
   idp?.kill("SIGKILL");
   if (dir) rmSync(dir, { recursive: true, force: true });
@@ -114,15 +116,16 @@ test("health and headers", async () => {
   const c = client();
   const r = await c("/healthz");
   assert.equal(r.status, 200);
-  // SPEC.md §5.2 verbatim: deny everything, then allow the same-origin assets.
+  // SPEC.md §5.2: deny everything, then allow the same-origin assets the pages use.
+  // connect-src covers the qty fetch, media-src the camera stream, and
+  // manifest-src/worker-src the PWA (§8.10).
   assert.equal(
     r.headers.get("content-security-policy"),
-    "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+    "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; media-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
   );
   assert.equal(r.headers.get("referrer-policy"), "no-referrer");
   assert.equal(r.headers.get("x-frame-options"), "DENY");
   assert.equal(r.headers.get("x-content-type-options"), "nosniff");
-  assert.equal(r.headers.get("x-frame-options"), "DENY");
 });
 
 test("anonymous: list ok, member pages forbidden, unknown code 404", async () => {
@@ -150,7 +153,7 @@ test("login issues a session; member (no admin role) is read-only", async () => 
   // The list stays readable for a member, but every write route refuses them (§4.1),
   // even with a valid session and CSRF token: the role check runs after CSRF on purpose.
   assert.equal((await member("/")).status, 200);
-  const [code] = codesOf(await admin("/codes?n=1&start=100000"));
+  const [code] = codesOf(await admin("/codes?n=1"));
   const token = csrfOf(await member(`/r/${code}`));
   for (const [path, body] of [
     [`/r/${code}/register`, { name: "x", category: "c" }],
@@ -166,15 +169,18 @@ test("login issues a session; member (no admin role) is read-only", async () => 
 
 test("print sheet, register through the sticker URL, then edit/qty/status", async () => {
   const c = await login("admin");
-  const sheet = await c("/codes?n=3&start=100");
+  const sheet = await c("/codes?n=3");
   assert.equal(sheet.status, 200);
   const codes = codesOf(sheet);
   assert.equal(codes.length, 3);
-  const svg = await c("/codes/svg?n=3&start=100");
+  const svg = await c("/codes/svg?n=3");
   assert.equal(svg.status, 200);
   assert.match(svg.headers.get("content-type"), /image\/svg\+xml/);
-  const svg2 = await c("/codes/svg?n=3&start=100");
-  assert.equal(svg.text, svg2.text, "sheet SVG is deterministic");
+  assert.match(svg.text, /^<svg xmlns/);
+  assert.equal((svg.text.match(/<g transform="translate\(/g) || []).length, 3);
+  // Codes are random (§7.5): a second sheet must not repeat the first one.
+  const svg2 = await c("/codes/svg?n=3");
+  assert.notEqual(svg.text, svg2.text, "each sheet is freshly generated");
 
   const [code] = codes;
   const anon = client();
@@ -240,7 +246,7 @@ test("export CSV, list filters, language switch", async () => {
 
 test("delete → 410 for anon, restore; rebind rotates the code", async () => {
   const c = await login("admin");
-  const [code] = codesOf(await c("/codes?n=1&start=200")); // lowercase, as printed on the sticker
+  const [code] = codesOf(await c("/codes?n=1")); // lowercase, as printed on the sticker
   const token = csrfOf(await c(`/r/${code}`));
   await c(`/r/${code}/register`, form({ _csrf: token, name: "HDD 2TB", category: "hdd" }));
 
@@ -264,6 +270,122 @@ test("delete → 410 for anon, restore; rebind rotates the code", async () => {
   assert.equal((await c(`/r/${newCode}`)).status, 200);
   assert.equal((await c(`/r/${code}`)).status, 410, "the old sticker is revoked");
   assert.equal((await client()(`/r/${code}`)).status, 410, "revoked sticker is 410 even for anonymous");
+});
+
+test("PWA: manifest, service worker and icons are served", async () => {
+  const c = client();
+  const man = await c("/manifest.webmanifest");
+  assert.equal(man.status, 200);
+  assert.match(man.headers.get("content-type"), /application\/manifest\+json/);
+  const json = JSON.parse(man.text);
+  assert.equal(json.start_url, "/");
+  assert.equal(json.display, "standalone");
+  assert.ok(json.icons.some((i) => i.sizes === "512x512" && /maskable/.test(i.purpose)), "a maskable 512 icon");
+
+  const sw = await c("/sw.js");
+  assert.equal(sw.status, 200);
+  assert.match(sw.headers.get("content-type"), /javascript/);
+  assert.match(sw.text, /addEventListener\("fetch"/);
+  assert.match(sw.text, /network only/, "photos and pages stay network-only");
+
+  for (const name of ["icon-192.png", "icon-512.png", "icon-maskable-512.png", "icon-180.png"]) {
+    const r = await c(`/static/${name}`);
+    assert.equal(r.status, 200, name);
+    assert.match(r.headers.get("content-type"), /image\/png/);
+  }
+
+  const home = await c("/");
+  assert.match(home.text, /rel="manifest" href="\/manifest\.webmanifest"/);
+  assert.match(home.text, /\/static\/app\.js/);
+});
+
+test("add by phone: /add scanner page is admin-only and accepts the typed fallback", async () => {
+  assert.equal((await client()("/add")).status, 403, "anon");
+  const member = await login("member");
+  assert.equal((await member("/add")).status, 403, "member without the admin role");
+
+  const c = await login("admin");
+  const page = await c("/add");
+  assert.equal(page.status, 200);
+  assert.match(page.text, /data-scanner-video/);
+  assert.match(page.text, /\/vendor\/jsQR\.js/);
+  assert.match(page.text, /\/static\/scan\.js/);
+  assert.match(page.text, /action="\/add"/);
+
+  const [code] = codesOf(await c("/codes?n=1"));
+  const viaUrl = await c(`/add?code=${encodeURIComponent(`${ORIGIN}/r/${code}`)}`);
+  assert.equal(viaUrl.status, 302);
+  assert.equal(viaUrl.headers.get("location"), `/r/${code}`);
+
+  const viaBare = await c(`/add?code=${code.replace(/(.{4})(?=.)/g, "$1-")}`);
+  assert.equal(viaBare.status, 302, "a typed, dashed code also works");
+
+  const bad = await c("/add?code=nope");
+  assert.equal(bad.status, 422);
+  assert.match(bad.text, /data-scanner-video/, "the page asks again instead of a bare error");
+});
+
+test("photo upload: multipart register, replace, remove, and access control", async () => {
+  const c = await login("admin");
+  const [code] = codesOf(await c("/codes?n=1"));
+  const token = csrfOf(await c(`/r/${code}`));
+
+  const B = "----e2eboundary";
+  const part = (name, value, filename = null, type = null) =>
+    filename === null
+      ? Buffer.from(`--${B}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`)
+      : Buffer.concat([
+          Buffer.from(`--${B}\r\nContent-Disposition: form-data; name="${name}"; filename="${filename}"\r\nContent-Type: ${type}\r\n\r\n`),
+          Buffer.from(value),
+          Buffer.from("\r\n"),
+        ]);
+  const body = Buffer.concat([
+    part("_csrf", token),
+    part("name", "Switch 8 puertos"),
+    part("category", "switch"),
+    part("photo", JPEG, "switch.jpg", "image/jpeg"),
+    Buffer.from(`--${B}--\r\n`),
+  ]);
+
+  const created = await c(`/r/${code}/register`, {
+    method: "POST",
+    headers: { "content-type": `multipart/form-data; boundary=${B}` },
+    body,
+  });
+  assert.equal(created.status, 302, `multipart register: ${created.text.slice(0, 200)}`);
+
+  const item = await c(`/r/${code}`);
+  assert.match(item.text, /Switch 8 puertos/);
+  assert.match(item.text, new RegExp(`<img class="photo" src="/photo/${code}"`));
+
+  const img = await c(`/photo/${code}`);
+  assert.equal(img.status, 200);
+  assert.match(img.headers.get("content-type"), /image\/jpeg/);
+  assert.match(img.headers.get("cache-control"), /private/);
+  assert.equal((await client()(`/photo/${code}`)).status, 403, "photos need a session");
+
+  // Replace through the phone's downscaled data URL.
+  const swapped = await c(
+    `/r/${code}/photo`,
+    form({ _csrf: token, photo_data: `data:image/png;base64,${PNG.toString("base64")}` }),
+  );
+  assert.equal(swapped.status, 302);
+  assert.match((await c(`/photo/${code}`)).headers.get("content-type"), /image\/png/);
+
+  // Bytes that are not an image are refused, and the stored photo survives.
+  const notImage = await c(
+    `/r/${code}/photo`,
+    form({ _csrf: token, photo_data: `data:image/png;base64,${Buffer.from("this is not a png at all").toString("base64")}` }),
+  );
+  assert.equal(notImage.status, 422);
+  assert.equal((await c(`/photo/${code}`)).status, 200);
+
+  // Nothing picked at all: a clear error, not a 500.
+  assert.equal((await c(`/r/${code}/photo`, form({ _csrf: token }))).status, 422);
+
+  const removed = await c(`/r/${code}/photo`, form({ _csrf: token, remove_photo: "1" }));
+  assert.equal(removed.status, 302);
+  assert.equal((await c(`/photo/${code}`)).status, 404);
 });
 
 test("rate limit: 31st GET on /r/* is 429", async () => {

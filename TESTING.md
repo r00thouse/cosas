@@ -1,26 +1,26 @@
 # Testing hacklab-cosas locally
 
-Everything below runs on one machine with Docker. There is no staging server, no
-seeding script and no test account: the platform boots with an empty database and the
-mock IdP logs you in as `mockadmin` without a password (the `as=member` variant has no
-admin role, so you can check the read-only path).
+Everything below runs on one machine with nothing but Node 24. There is no staging
+server, no seeding script and no test account: the platform boots with an empty
+database and the mock IdP logs you in as `mockadmin` without a password (the
+`as=member` variant has no admin role, so you can check the read-only path).
 
 | What | Where |
 |---|---|
 | App | <http://localhost:8080> |
-| Mock Kanidm IdP (dev only) | <http://localhost:9000> |
+| Mock Kanidm IdP (dev only) | <http://localhost:9010> |
 | SQLite database (on the host) | `./dev-data/cosas.dev.db` |
 
 ---
 
 ## 1. Prerequisites
 
-- **Docker Engine / Docker Desktop, running**, with the Compose v2 plugin
-  (`docker compose version` works). Raw Docker, Podman, Colima and Rancher Desktop
-  are all fine — anything that runs `docker compose`.
-- **Bash** and **curl**.
-- **Nothing else.** No Node, no npm, no Kanidm, no TLS, no internet after the first
-  image pull (`node:24-alpine`).
+- **Node 24 or newer**, on `PATH`, from an official build (it ships `node:sqlite`;
+  the prebuilt packages and a plain `node --version` are enough). Node 22 will not do.
+- **Bash** and **curl**, plus `setsid` (part of util-linux, present on any desktop
+  Linux; on macOS run `npm run dev` and `npm run mock-idp` in two terminals instead).
+- **Nothing else.** No npm install, no Docker, no Kanidm, no TLS, no database server.
+  Docker is only needed if you want to build the deploy image (`compose.yaml`).
 
 Check it all at once:
 
@@ -39,38 +39,43 @@ auth guard), `store.js` (SQLite), `oidc.js` (Kanidm OIDC), `code.js`/`codes.js`
 encoder, so no npm install and no build step). `tools/mock-idp/` stands in for Kanidm
 locally.
 
-- `./dev.sh code <start> <n>` prints the exact sticker codes a printed sheet will
-  carry (§7.5 of the spec) using the dev `CODE_SECRET`, and `node tools/gen-codes.js
-  <start> <n> [--url ORIGIN]` prints the same list as `code<TAB>URL` (codes are printed
-  lowercase, as in the QR payload). Handy to know what to type into the browser when
-  you do not want to scan a QR.
+- `./dev.sh code <n>` prints `n` fresh sticker codes (§7.5 of the spec) using the dev
+  `CODE_SECRET`, and `node tools/gen-codes.js <n> [--url ORIGIN]` prints the same list
+  as `code<TAB>URL` (codes are printed lowercase, as in the QR payload). Codes are
+  random, so these are new codes — not the ones already on a sheet in your hand —
+  but they are valid stickers: handy to know what to type into the browser when you do
+  not want to scan a QR.
 
 ## 3. Power it on
 
 ```bash
-./dev.sh            # == ./dev.sh up : build + start app and mock IdP, wait until healthy
+./dev.sh            # == ./dev.sh up : start app and mock IdP, wait until healthy
 ```
 
-What you should see: the build output, then three green lines
-(`mock idp`, `app /healthz`, `app / renders`) and the URL summary. If something fails,
-`dev.sh` prints the last 25 app log lines before exiting — those are the real error.
+Nothing is built: the two processes start in about a second and you should see three
+green lines (`mock idp`, `app /healthz`, `app / renders`) plus a URL summary. If
+something fails, `dev.sh` prints the last 25 app log lines before exiting — those are
+the real error.
+
+Server-side edits reload on save (`node --watch`); `public/*.css` and `public/*.js`
+are served from disk, so a browser reload is enough. Logs are in `.dev/app.log` and
+`.dev/idp.log`; the generated dev environment is `.dev/env` (gitignored).
 
 | Command | What it does |
 |---|---|
-| `./dev.sh` / `./dev.sh up [--build]` | build if needed, start everything, wait until healthy |
-| `./dev.sh down` | stop and remove the containers; **keeps** `dev-data/` (next `up` resumes the same data) |
+| `./dev.sh` / `./dev.sh up` | start both processes, wait until healthy |
+| `./dev.sh down` | stop both processes; **keeps** `dev-data/` (next `up` resumes the same data) |
 | `./dev.sh reset` | delete `dev-data/` (items, claimed codes, sessions) and start empty again |
-| `./dev.sh logs app` / `./dev.sh logs mock-idp` | follow logs |
-| `./dev.sh ps` | container status and health |
-| `./dev.sh shell` | `sh` inside the app container |
+| `./dev.sh logs` (or `logs app`, `logs idp`) | follow the process logs |
+| `./dev.sh ps` | process and port status |
 | `./dev.sh test` | HTTP smoke test (§4.1) |
-| `./dev.sh doctor` | prerequisites + merged-compose sanity |
+| `./dev.sh doctor` | node/curl/setsid, ports, repo files |
+| `npm run dev` / `npm run mock-idp` | the same two processes, by hand (reads `.dev/env`) |
 
-Dev secrets (session, client secret, `CODE_SECRET`) come from the `environment:`
-block of [`compose.dev.yaml`](compose.dev.yaml), so a fresh clone works without any
-`.env`. `dev.sh` creates an empty `.env` for the duration of a command if one is
-missing (compose's `env_file:` insists on it) and removes it again on exit. A real
-`.env` is never touched. Ports 8080 and 9000 must be free.
+Dev secrets (session, client secret, `CODE_SECRET`) are written to `.dev/env` by
+`dev.sh`, so a fresh clone works without any `.env` — and a real `.env` (the deploy
+one) is never read or touched. Ports 8080 and 9010 must be free. `node --watch` is on
+by default; `WATCH=0 ./dev.sh up` turns it off.
 
 ## 4. Test in layers
 
@@ -113,18 +118,19 @@ bug report can just say "12.7 fails".
    back to the app as `mockadmin`, with the admin role (the role comes from the IdP's
    groups claim, so `?as=member` gives a read-only session instead).
    Logging out is local: it clears the app session, with no round trip to the IdP.
-4. **Print stickers** (12.6) — open `/codes?n=5`. Five stickers appear; *Print* opens
-   the browser dialog with 3 × 7 stickers per A4 page. Every sticker has a QR plus
-   the code in two lines of text. Also try `/codes/svg?n=5` — the same sheet as one
-   downloadable SVG. Write down one code (or use the output of
-   `./dev.sh code 0 5`); you need it in the next step.
+4. **Print stickers** (12.6) — open `/codes?n=5`. Five stickers appear; *Print*
+   (`Ctrl+P`) shows 4 × 11 stickers per A4 page and nothing else — no header, nav,
+   buttons or footer. Every sticker has a QR plus the code in two lines of text.
+   Also try `/codes/svg?n=5` — the same sheet as one downloadable SVG. Codes are
+   random, so print them or write one down (or use `./dev.sh code 1`); you need it in
+   the next step.
 5. **Register by scan** (12.7, 12.22) — open `http://localhost:8080/r/<code>` as if you
    had scanned it. Unbound code while logged in → the register form. Fill name, category,
    location, status *in use*, qty *3*, save → the item page.
-   *Tip:* instead of typing, render the QR on screen: `/codes/svg?n=1&start=0` is the
-   real sticker, and any QR reader app on a phone solves it. Codes are lowercase in
-   URLs (`/r/2h00000039nydg6d`) and dashes are optional — `2H00-0000-39NY-DG6D` typed
-   by hand works too.
+   *Tip:* instead of typing, render the QR on screen: `/codes/svg?n=1` is the real
+   sticker, and any QR reader app on a phone solves it. Codes are lowercase in URLs
+   (`/r/2jhd-tgkq3n13fqc3`) and dashes are optional — `2JHD-TGKQ-3N13-FQC3` typed by
+   hand works too.
 6. **Anonymous view** (12.14) — log out, open `/r/<same code>`: you see it exists, but
    **no** serial, model, holder or notes (`Ctrl+U` and search the source).
 7. **Quantity** (12.9) — `+1` / `−1` change the number without a page reload; with
@@ -138,6 +144,27 @@ bug report can just say "12.7 fails".
 11. **Search and filters** (12.16) — add a second item ("Laptop Dell"), search `mon`
     and filter by status; `q=%` should not return everything.
 12. **CSV** (12.17) — `/export.csv` downloads; it opens in LibreOffice or Excel.
+13. **Photo** (12.23) — on an item, *Take or choose a photo*, pick any JPEG/PNG, upload.
+    The image appears on the page; open it directly (`/photo/<code>`) and log out —
+    that URL now returns 403. Try uploading a `.txt` renamed to `.jpg`: the server
+    sniffs the bytes and answers 422, keeping the old photo.
+14. **Add from the phone** (12.24) — click *Add* in the header. The page offers the
+    camera and a box to type a code. Type a code from step 4 → you land on its sticker
+    page. Visiting `/add` reserves nothing: the code stays unclaimed until you submit
+    the register form.
+15. **Camera** (12.27) — open `http://localhost:8080` on a phone in the same LAN: that
+    is plain http, so the browser refuses the camera and the page says so. To actually
+    scan, put the app behind https (or use `tailscale serve` / a tunnel, which
+    terminate TLS for you) and open `/add`; point the phone at the printed sticker from
+    step 4. Chrome/Android uses the built-in `BarcodeDetector`; Safari/iOS falls back to
+    `jsQR` (`/vendor/jsQR.js`) — both land on `/r/<code>`.
+16. **Mobile layout** (12.25) — resize the window to ~390 px or use device mode. The
+    list becomes a card stack (each cell labelled), the nav wraps, buttons are
+    thumb-sized. Nothing scrolls sideways.
+17. **PWA** (12.26) — the address bar offers an install button (Chrome/Edge) or
+    *Add to Home Screen* (Safari). Install it, then set devtools to *Offline* and
+    reload: you get the built-in offline page, **not** a stale item list. Photos and
+    `/export.csv` are never cached.
 
 ### 4.3 Layer 3 — the production shape
 
@@ -146,13 +173,33 @@ Only worth doing before putting the app on the real server:
 1. Write a real `.env` from [`.env.example`](.env.example) with `PUBLIC_ORIGIN` =
    your real `https://` host and freshly generated secrets
    (`openssl rand -base64 48`).
-2. `docker compose up -d --build` (weather: *without* `-f compose.dev.yaml`, so no mock
-   IdP). This is what `dev.sh` never does.
+2. `docker compose up -d --build` (no mock IdP; `compose.yaml` only). This is what
+   `dev.sh` never does, and the only step that needs Docker.
 3. Expect the session cookie to be `Secure`, QR URLs to be `https://…`, and login to
    fail until the Kanidm client (§10.1 of the spec) exists — that failure is the
    correct result of this layer.
 
 Request-flow checks for these are §12 items 5, 15 (with nginx), 19 and 20.
+
+### 4.4 Checking the scanner without a phone
+
+The camera path is hard to eyeball on a laptop, so it can be driven headlessly. With
+`google-chrome-stable` installed, `--use-file-for-fake-video-capture` feeds a video
+file to `/add` as if it were the camera:
+
+1. Generate a Y4M frame holding a QR for one of your stickers (the encoder in
+   `qrcode.js` / `qrcode-generator` is the natural source).
+2. Start Chrome with `--headless=new --use-fake-ui-for-media-stream
+   --use-fake-device-for-media-stream --use-file-for-fake-video-capture=<file>
+   --remote-debugging-port=9446`.
+3. Load `http://localhost:8080/add` with a session cookie, click `[Start camera]`,
+   and check that `location.pathname` becomes `/r/<code>` within a couple of seconds.
+
+That is how `jsQR` was verified against a real browser: Chrome on this machine has no
+`BarcodeDetector`, so the browser borrowed the same decoder Safari uses. `npm test`
+also round-trips `jsQR` over frames rendered from our own encoder at 1–6 px/module,
+rotated, blurred and inverted. Note that `getUserMedia` needs `localhost` or https (SPEC.md §8.9), which is why
+the check runs against `http://localhost` and not the LAN address.
 
 ## 5. Mock IdP behaviour (what "login" actually does)
 
@@ -164,10 +211,10 @@ The mock IdP stands in for Kanidm and mimics its endpoints
   `member` without it, so the read-only path is testable.
 - It enforces PKCE and client authentication exactly like Kanidm, so the app's OIDC
   code is really exercised, not bypassed.
-- The browser-facing URLs (issuer, authorize) point at `localhost:9000`; the URLs the
-  app calls server-to-server (token, JWKS) point at `mock-idp:9000`. That split lives in
-  `compose.dev.yaml` (`MOCK_PUBLIC_URL` / `MOCK_INTERNAL_URL`) and is why the app sets
-  `OIDC_ISSUER` to the browser-facing issuer.
+- `MOCK_PUBLIC_URL` / `MOCK_INTERNAL_URL` separate the URLs the browser sees from the
+  ones the app calls. Locally both are `http://localhost:9010`, because the two
+  processes share a host; in a container they would differ (`mock-idp:9010`). The
+  app's `OIDC_ISSUER` is set to the browser-facing issuer so `iss` matches.
 - Its signing key is derived from a fixed dev seed (`MOCK_KEY_SEED`), so the JWKS is the
   same after every restart. The app caches the JWKS for an hour, so a new key per
   restart would otherwise break every login until that cache expired. Existing app
@@ -180,14 +227,15 @@ The mock IdP stands in for Kanidm and mimics its endpoints
 
 | Symptom | Fix |
 |---|---|
-| `port is already allocated` on 8080/9000 | something else is using it: `ss -ltnp \| grep -E ':8080\|:9000'`, stop it, or change the published ports in `compose.dev.yaml` |
-| `cannot talk to the docker daemon` | Docker is not running, or your user is not in the `docker` group |
-| `env file …/.env not found` from *another* compose command | run compose through `./dev.sh`, or `cp .env.example .env` |
-| `dev.sh up` after editing `Dockerfile` or `package.json` | `./dev.sh up --build` (plain `up` reuses the image) |
-| Login bounces back with an error page | the mock IdP restarted mid-login; just log in again, or `./dev.sh logs mock-idp` |
+| `port 8080 is busy` / `:9010 is busy` | something else is using it: `ss -ltnp \| grep -E ':8080\|:9010'`, then stop it (or `PORT`/ports in `dev.sh`) |
+| `node:sqlite` missing at boot | not an official Node 24 build; install Node 24 from nodejs.org |
+| `setsid not found` | util-linux is missing (rare); run `npm run dev` and `npm run mock-idp` in two shells |
+| `EADDRINUSE` in `.dev/app.log` | an old process survived: `./dev.sh down`, or kill what `./dev.sh ps` reports |
+| Login bounces back with an error page | the mock IdP restarted mid-login; just log in again, or `./dev.sh logs idp` |
+| Edits to `.js` under `server/` are ignored | `WATCH=0` was used; `./dev.sh down && ./dev.sh` |
 | 429 on every page for a while | the smoke test's rate-limit check; wait 60 s |
 | Want a clean start | `./dev.sh reset` |
-| Inspect the DB | `sqlite3 dev-data/cosas.dev.db` if `sqlite3` is installed; if not, use a throwaway Node container: `docker run --rm -v "$PWD/dev-data:/d" node:24-alpine node -e "const {DatabaseSync}=require('node:sqlite');const d=new DatabaseSync('/d/cosas.dev.db');console.log(d.prepare('select * from items').all())"` |
+| Inspect the DB | `sqlite3 dev-data/cosas.dev.db` if `sqlite3` is installed, else `node -e "const {DatabaseSync}=require('node:sqlite');const d=new DatabaseSync('dev-data/cosas.dev.db');console.log(d.prepare('select * from items').all())"` |
 
 ## 7. What "tested" means here
 
@@ -196,5 +244,5 @@ The mock IdP stands in for Kanidm and mimics its endpoints
 - §4.2 done end-to-end = the product works for a person with a phone camera.
 - Neither proves the production deployment; that is §4.3 plus the operator's nginx.
 
-For the full, exhaustive list — 23 numbered items including nginx and `https://`
+For the full, exhaustive list — 28 numbered items including nginx and `https://`
 behaviour — see [`SPEC.md`](SPEC.md) §12.

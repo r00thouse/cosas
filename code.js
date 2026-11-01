@@ -1,13 +1,14 @@
 // Sticker codes (SPEC.md §7): 16 Crockford-base32 chars, HMAC-signed, never sequential.
-//   MM SSSSSS NNNN HHHH
+//   MM RRRRRR RRRR HHHH
 //     MM      month index (year-2020)*12 + (month-1), 10 bits
-//     SSSSSS  batch sequence, 30 bits (informational: what a sheet would have printed)
-//     NNNN    nonce, 20 bits (derived for a sheet, random for a one-off item)
-//     HHHH    first 20 bits of HMAC-SHA256(key, "v1" + MM+SSSSSS+NNNN)
+//     RRRRRR  30 random bits
+//     RRRR    20 random bits
+//     HHHH    first 20 bits of HMAC-SHA256(key, "v1" + MM+RRRRRR+RRRR)
+// Nothing is sequential: every code (sheet or single) carries 50 random bits, so a
+// printed sheet never reveals an order or a volume. The HMAC is what makes it valid.
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 
 export const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-const BATCH_PREFIX = "hacklab-cosas/batch/v1:";
 const KEY_LABEL = "hacklab-cosas/code/v1";
 
 const keyCache = new Map();
@@ -62,9 +63,20 @@ export function normalize(input) {
   return out.length === 16 ? out : null;
 }
 
+/**
+ * Whatever the scanner or the keyboard produced -> canonical code, or null.
+ * Accepts a sticker URL (`https://host/r/<code>`), a pasted link, or the raw code.
+ */
+export function normalizeScan(input) {
+  const s = String(input ?? "").trim().slice(0, 500);
+  if (!s) return null;
+  const m = /\/r\/([0-9A-Za-z-]{4,40})(?:[?#]|$)/.exec(s);
+  return normalize(m ? m[1] : s);
+}
+
 /** The printed/stored form: 4 groups of 4. Cosmetic only. */
 export const pretty = (code) => `${code.slice(0, 4)}-${code.slice(4, 8)}-${code.slice(8, 12)}-${code.slice(12, 16)}`;
-/** Two lines of 9 characters, as printed on a 60x30 mm sticker (§7.5): "MMMM-MMMM-" then "MMMM-MMMM". */
+/** Two lines of 9 characters, as printed on a 50x25 mm sticker (§7.5): "MMMM-MMMM-" then "MMMM-MMMM". */
 export const stickerLines = (code) => [pretty(code).slice(0, 9), pretty(code).slice(10)];
 
 const monthNow = () => {
@@ -82,12 +94,6 @@ function body(mm, seq, nonce) {
   return encode(mm % 2 ** 10, 2) + encode(seq % 2 ** 30, 6) + encode(nonce % 2 ** 20, 4);
 }
 
-/** The §7.4/§7.5 deterministic nonce for sticker `i` of the sheet starting at `start`. */
-export function batchNonce(secret, start, i) {
-  const mac = createHmac("sha256", secret).update(`${BATCH_PREFIX}${start}:${i}`).digest();
-  return mac.readUIntBE(0, 3) >> 4;
-}
-
 /** build(mm, seq, nonce) -> canonical code */
 export function build(secret, mm, seq, nonce) {
   const b = body(mm, seq, nonce);
@@ -95,18 +101,16 @@ export function build(secret, mm, seq, nonce) {
 }
 
 /**
- * Code `i` (0-based) of the sheet that starts at sequence `start` (§7.4/§7.5):
- * sheetCode(secret, monthIndex, start, i). `start + i` must be < 2**30.
+ * A code with 50 random bits (30 + 20). Used for every sticker on a sheet and for
+ * every new item, so no code is predictable, sequential or guessable from its
+ * neighbours (§7.3). Collision chance is ~1e10/2^51 for 100k codes: negligible.
  */
-export function sheetCode(secret, monthIndex, start, i) {
-  if (start + i >= 2 ** 30) throw new RangeError("sequence counter exhausted (2^30)");
-  return build(secret, monthIndex, start + i, batchNonce(secret, start, i));
+export function randomCode(secret, monthIndex = monthNow()) {
+  return build(secret, monthIndex, randomInt(0, 2 ** 30), randomInt(0, 2 ** 20));
 }
 
-/** One standalone code (a brand-new item): random nonce, seq from the counter. */
-export function oneOff(secret, seq, monthIndex = monthNow()) {
-  return build(secret, monthIndex, seq, randomInt(0, 2 ** 20));
-}
+/** One standalone code (a brand-new item or a rebind). */
+export const oneOff = randomCode;
 
 /**
  * Verify + decode. Returns {code, mm, seq, nonce} for a valid code, null otherwise.

@@ -1,7 +1,8 @@
 // Unit tests for code.js (§7.5 vector) and qrcode.js (matrix -> SVG). Run: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { build, sheetCode, oneOff, parse, normalize, pretty, stickerLines, batchNonce } from "../../code.js";
+import { build, oneOff, randomCode, parse, normalize, pretty, stickerLines } from "../../code.js";
+import { sheetCodes } from "../../codes.js";
 import { qrMatrix, matrixToSvg } from "../../qrcode.js";
 
 const DEV_SECRET = "dev-code-secret-that-is-long-enough-0000000";
@@ -11,26 +12,36 @@ test("§7.3 unit vector (explicit nonce 0xABCD1)", () => {
   assert.equal(build(DEV_SECRET, MONTH, 0, 0xabcd1), "2H000000NF6H9SSF");
 });
 
-test("§7.5 batch vector (start=0, n=5)", () => {
-  const sheet = [0, 1, 2, 3, 4].map((i) => sheetCode(DEV_SECRET, MONTH, 0, i));
-  assert.deepEqual(sheet, ["2H00000039NYDG6D", "2H000001M7NS24TA", "2H000002Q5X4ZF1S", "2H000003JS4DZA8E", "2H0000042754KQMW"]);
-  assert.equal(batchNonce(DEV_SECRET, 0, 0), 0x1a6be); // 20 bits from the batch HMAC
-  assert.notEqual(batchNonce(DEV_SECRET, 0, 0), batchNonce(DEV_SECRET, 1, 0));
+test("§7.5 sheet codes are random and distinct, never sequential", () => {
+  const sheet = sheetCodes(DEV_SECRET, "http://localhost:8080", 200, MONTH);
+  assert.equal(sheet.length, 200);
+  assert.equal(new Set(sheet.map((s) => s.code)).size, 200, "no duplicates on a sheet");
+  for (const s of sheet) {
+    assert.ok(parse(DEV_SECRET, s.code), `invalid code ${s.code}`);
+    assert.equal(s.url, `http://localhost:8080/r/${s.code.toLowerCase()}`);
+  }
+  // The decoded "seq" field must not be an ascending counter.
+  const seqs = sheet.map((s) => parse(DEV_SECRET, s.code).seq);
+  const ascending = seqs.every((v, i) => i === 0 || v === seqs[i - 1] + 1);
+  assert.equal(ascending, false, "codes must not be sequential");
+  // Two sheets share no code and no visible prefix.
+  const again = sheetCodes(DEV_SECRET, "http://localhost:8080", 200, MONTH);
+  assert.equal(again.filter((s) => sheet.some((o) => o.code === s.code)).length, 0);
 });
 
 test("round trip of 10,000 codes", () => {
   for (let i = 0; i < 10_000; i++) {
     const seq = i * 7;
-    const c = i % 2 ? sheetCode(DEV_SECRET, MONTH, seq, 0) : oneOff(DEV_SECRET, i, MONTH);
+    const c = i % 2 ? build(DEV_SECRET, MONTH, seq % 2 ** 30, 0x12345) : oneOff(DEV_SECRET, MONTH);
     const p = parse(DEV_SECRET, c);
     assert.ok(p, `valid code rejected: ${c}`);
     assert.equal(p.code, c);
-    assert.equal(p.seq, (i % 2 ? i * 7 : i) % 2 ** 30);
+    if (i % 2) assert.equal(p.seq, (i * 7) % 2 ** 30);
   }
 });
 
 test("parse tolerates case, dashes, spaces and confusables", () => {
-  const c = sheetCode(DEV_SECRET, 0, 0, MONTH);
+  const c = build(DEV_SECRET, MONTH, 0, 0xabcd1);
   assert.equal(parse(DEV_SECRET, c.toLowerCase()).code, c);
   assert.equal(parse(DEV_SECRET, pretty(c).toLowerCase()).code, c);
   assert.equal(parse(DEV_SECRET, ` ${pretty(c)} `).code, c);
@@ -40,7 +51,7 @@ test("parse tolerates case, dashes, spaces and confusables", () => {
 });
 
 test("rejects tampering, wrong secret and junk", () => {
-  const c = sheetCode(DEV_SECRET, 0, 3, MONTH);
+  const c = build(DEV_SECRET, MONTH, 3, 0x1234);
   for (let i = 0; i < c.length; i++) {
     const ch = c[i] === "0" ? "1" : "0";
     assert.equal(parse(DEV_SECRET, c.slice(0, i) + ch + c.slice(i + 1)), null, `flip at ${i}`);
@@ -58,11 +69,15 @@ test("rejects tampering, wrong secret and junk", () => {
   assert.equal(normalize("x".repeat(100)), null);
 });
 
-test("a sheet continues the sequence: start=10, i=3 has seq 13", () => {
-  const p = parse(DEV_SECRET, sheetCode(DEV_SECRET, MONTH, 10, 3));
-  assert.equal(p.seq, 13);
-  assert.equal(p.seq, parse(DEV_SECRET, sheetCode(DEV_SECRET, MONTH, 0, 13)).seq);
-  assert.throws(() => sheetCode(DEV_SECRET, MONTH, 2 ** 30 - 1, 1), RangeError);
+test("randomCode keeps the month field and a valid tag", () => {
+  const seen = new Set();
+  for (let i = 0; i < 500; i++) {
+    const c = randomCode(DEV_SECRET, MONTH);
+    assert.equal(c.slice(0, 2), "2H", "month prefix is stable");
+    assert.ok(parse(DEV_SECRET, c), `invalid ${c}`);
+    seen.add(c);
+  }
+  assert.equal(seen.size, 500);
 });
 
 test("pretty/stickerLines geometry", () => {

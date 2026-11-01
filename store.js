@@ -22,8 +22,8 @@ export function createStore(db, { log } = {}) {
       "SELECT i.* FROM item_codes c JOIN items i ON i.id = c.item_id WHERE c.code = ? AND i.deleted_at IS NULL",
     ),
     insertItem: db.prepare(`INSERT INTO items
-      (code, code_seq, name, category, model, serial, location, status, held_by, qty_mode, qty, notes, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+      (code, code_seq, name, category, model, serial, location, status, held_by, qty_mode, qty, notes, photo, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
     insertCode: db.prepare("INSERT INTO item_codes (code, item_id, created_at) VALUES (?, ?, ?)"),
     forgetCode: db.prepare("INSERT INTO forgotten_codes (code, reason, at) VALUES (?, ?, ?)"),
     deleteCode: db.prepare("DELETE FROM item_codes WHERE code = ?"),
@@ -93,6 +93,7 @@ export function createStore(db, { log } = {}) {
       fields.qty_mode,
       fields.qty,
       fields.notes,
+      fields.photo || "",
       now,
       now,
     );
@@ -148,6 +149,21 @@ export function createStore(db, { log } = {}) {
     db.prepare("UPDATE items SET qty = ?, updated_at = ? WHERE id = ?").run(qty, now, id);
     audit(code, "qty", actor, null, { qty }, now);
     return stmt.byId.get(id);
+  }
+
+  /** The photo file name of an item ('' = no photo). Audited like any other change. */
+  function setPhoto(id, code, name, actor) {
+    const before = stmt.byId.get(id);
+    if (!before) return undefined;
+    const now = nowIso();
+    db.prepare("UPDATE items SET photo = ?, updated_at = ? WHERE id = ?").run(String(name || ""), now, id);
+    audit(code, "photo", actor, { photo: before.photo }, { photo: String(name || "") }, now);
+    return stmt.byId.get(id);
+  }
+
+  /** Every photo file name still referenced by a row — the keep-list for GC. */
+  function photoNames() {
+    return db.prepare("SELECT photo FROM items WHERE photo <> ''").all().map((r) => r.photo);
   }
 
   /**
@@ -216,7 +232,6 @@ export function createStore(db, { log } = {}) {
       .all()
       .map((r) => r.v);
   /** Last sequence number ever used, deleted items included (never reuse a seq). */
-  const maxSeq = () => db.prepare("SELECT coalesce(max(code_seq), -1) AS n FROM items").get().n;
 
   function listLive(opts = {}) {
     // Anonymous visitors search the public subset only (§8.4).
@@ -256,6 +271,8 @@ export function createStore(db, { log } = {}) {
     setStatus,
     bumpQty,
     setQty,
+    setPhoto,
+    photoNames,
     softDelete,
     restore,
     rebind,
@@ -263,7 +280,6 @@ export function createStore(db, { log } = {}) {
     countLive,
     countFiltered,
     distinct,
-    maxSeq,
   };
 }
 

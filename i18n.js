@@ -56,6 +56,47 @@ export const STRINGS = {
   },
   "scan.claim_cta": { en: "Register item", es: "Registrar la cosa" },
 
+  // §8.9: add by phone (scan a printed sticker, then fill the form)
+  "nav.add": { en: "Add", es: "Agregar" },
+  "add.title": { en: "Add an item", es: "Agregar una cosa" },
+  "add.subtitle": {
+    en: "Scan the sticker on the thing, then write down what it is.",
+    es: "Escanea la etiqueta de la cosa y luego anota qué es.",
+  },
+  "add.camera_hint": { en: "The camera opens here.", es: "La cámara se abre aquí." },
+  "add.camera_start": { en: "Start camera", es: "Encender la cámara" },
+  "add.camera_stop": { en: "Stop camera", es: "Apagar la cámara" },
+  "add.camera_denied": {
+    en: "No camera access. Allow it in the browser, or type the code.",
+    es: "Sin acceso a la cámara. Permítelo en el navegador o escribe el código.",
+  },
+  "add.unsupported": {
+    en: "This browser cannot read QR codes here. Type the sticker code instead.",
+    es: "Este navegador no puede leer códigos QR aquí. Escribe el código de la etiqueta.",
+  },
+  "add.manual": { en: "Or type the sticker code", es: "O escribe el código de la etiqueta" },
+  "add.scanning": { en: "Looking for a sticker…", es: "Buscando una etiqueta…" },
+  "add.not_ours": {
+    en: "That QR code is not one of our stickers.",
+    es: "Ese código QR no es una de nuestras etiquetas.",
+  },
+  "add.continue": { en: "Continue", es: "Continuar" },
+  "add.https_hint": {
+    en: "The camera and the install option need https (or localhost on a computer).",
+    es: "La cámara y la opción de instalar necesitan https (o localhost en una computadora).",
+  },
+
+  "item.photo": { en: "Photo", es: "Foto" },
+  "photo.none": { en: "No photo yet.", es: "Todavía no hay foto." },
+  "photo.add": { en: "Take or choose a photo", es: "Tomar o elegir una foto" },
+  "photo.replace": { en: "Replace the photo", es: "Cambiar la foto" },
+  "photo.remove": { en: "Remove it", es: "Quitarla" },
+  "photo.upload": { en: "Upload", es: "Subir" },
+  "photo.hint": {
+    en: "JPEG, PNG or WebP up to 8 MB. A phone sends a smaller copy.",
+    es: "JPEG, PNG o WebP de hasta 8 MB. Un teléfono envía una copia más chica.",
+  },
+
   "item.name": { en: "Name", es: "Nombre" },
   "item.category": { en: "Category", es: "Categoría" },
   "item.model": { en: "Model", es: "Modelo" },
@@ -106,6 +147,7 @@ export const STRINGS = {
   "action.delete_confirm": { en: "The item is hidden from the list. Continue?", es: "La cosa se oculta de la lista. ¿Seguir?" },
   "action.restore": { en: "Restore item", es: "Restaurar la cosa" },
   "action.new_with_new_code": { en: "New item with a new code", es: "Cosa nueva con un código nuevo" },
+  "action.photo_saved": { en: "Photo saved.", es: "Foto guardada." },
 
   "list.search_placeholder": { en: "Search", es: "Buscar" },
   "list.filter_category": { en: "Category", es: "Categoría" },
@@ -121,7 +163,7 @@ export const STRINGS = {
 
   "codes.title": { en: "Print stickers", es: "Imprimir etiquetas" },
   "codes.count": { en: "How many?", es: "¿Cuántas?" },
-  "codes.start": { en: "Starting sequence", es: "Secuencia inicial" },
+  "codes.new_sheet": { en: "New sheet", es: "Hoja nueva" },
   "codes.generate": { en: "Generate sheet", es: "Generar la hoja" },
   "codes.view": { en: "Show sheet", es: "Ver la hoja" },
   "codes.print": { en: "Print", es: "Imprimir" },
@@ -145,6 +187,11 @@ export const STRINGS = {
   "err.range": { en: "Out of range.", es: "Fuera de rango." },
   "err.forbidden": { en: "Your account can read but not change the inventory.", es: "Tu cuenta puede leer pero no modificar el inventario." },
   "err.internal": { en: "Something failed on the server. Try again.", es: "Algo falló en el servidor. Inténtalo de nuevo." },
+  "err.bad_photo": {
+    en: "That file is not a JPEG, PNG or WebP image.",
+    es: "Ese archivo no es una imagen JPEG, PNG o WebP.",
+  },
+  "err.photo_too_big": { en: "The photo is larger than 8 MB.", es: "La foto pesa más de 8 MB." },
 
   "footer.made_by": { en: "for the hacklab, with no dependencies", es: "para el hacklab, sin dependencias" },
 };

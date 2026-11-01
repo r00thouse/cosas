@@ -3,6 +3,7 @@
 import { html, raw, esc } from "./html.js";
 import { pretty as prettyCode, stickerLines } from "./code.js";
 import { STATUSES, QTY_MODES } from "./store.js";
+import { qrMatrix, matrixToSvg } from "./qrcode.js";
 
 const SEED_CATEGORIES = [
   "monitor", "laptop", "desktop", "server", "sbc", "phone", "tablet", "hdd", "ssd",
@@ -20,15 +21,21 @@ export function layout(c, { title, body, page = "" }) {
 <html lang="${lang}">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f5f3f" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141516" media="(prefers-color-scheme: dark)">
 <title>${title} — ${t("app.title")}</title>
 <link rel="stylesheet" href="/static/app.css">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="/static/icon-180.png">
 </head>
 <body data-page="${page}">
 <div class="wrap">
 <header class="top">
   <a class="brand" href="/">${t("app.title")}</a>
   <nav>
+    ${member ? html`<a class="nav-add" href="/add">${t("nav.add")}</a>` : raw("")}
     <a href="/">${t("nav.home")}</a>
     ${member ? html`<a href="/codes">${t("nav.print")}</a><a href="/export.csv">${t("nav.export")}</a>` : raw("")}
     ${member
@@ -46,6 +53,7 @@ ${body}
 </main>
 <footer>${t("app.title")} · ${t("footer.made_by")}</footer>
 </div>
+<script src="/static/app.js" defer></script>
 </body>
 </html>`;
 }
@@ -98,11 +106,11 @@ ${rows.length === 0
   <thead><tr><th>${t("item.name")}</th><th>${t("item.category")}</th><th>${t("item.status")}</th><th>${t("item.location")}</th><th>${t("item.qty")}</th></tr></thead>
   <tbody>${rows.map(
     (r) => html`<tr>
-      <td><a href="/r/${r.code.toLowerCase()}">${r.name || r.code}</a></td>
-      <td>${r.category}</td>
-      <td><span class="badge ${r.status}">${t(`item.status.${r.status}`)}</span></td>
-      <td>${r.location}</td>
-      <td>${r.qty === 1 ? "" : r.qty}</td>
+      <td data-label="${t("item.name")}"><a href="/r/${r.code.toLowerCase()}">${r.name || r.code}</a></td>
+      <td data-label="${t("item.category")}">${r.category}</td>
+      <td data-label="${t("item.status")}"><span class="badge ${r.status}">${t(`item.status.${r.status}`)}</span></td>
+      <td data-label="${t("item.location")}">${r.location}</td>
+      <td data-label="${t("item.qty")}">${r.qty === 1 ? "" : r.qty}</td>
     </tr>`,
   )}</tbody>
 </table>`}
@@ -146,7 +154,7 @@ export function itemPage(c, { code, item, flash, errors, editing, confirm }) {
 <dl class="item">
   <dt>${t("item.category")}</dt><dd>${item.category}</dd>
   <dt>${t("item.status")}</dt><dd><span class="badge ${item.status}">${t(`item.status.${item.status}`)}</span></dd>
-  <dt>${t("item.location")}</dt><dd>${item.location}</dd>
+  ${item.location ? html`<dt>${t("item.location")}</dt><dd>${item.location}</dd>` : raw("")}
   ${item.qty !== 1
     ? html`<dt>${t("item.qty")}</dt><dd><span data-qty-value>${item.qty}</span></dd>`
     : raw("")}
@@ -154,13 +162,14 @@ export function itemPage(c, { code, item, flash, errors, editing, confirm }) {
   let memberPart = raw("");
   if (member) {
     memberPart = html`
+${photoPanel(c, item, code)}
 <section class="panel">
 <h2>${t("item.name")}: ${item.name}</h2>
 <dl class="item">
-  <dt>${t("item.model")}</dt><dd>${item.model}</dd>
-  <dt>${t("item.serial")}</dt><dd>${item.serial}</dd>
-  <dt>${t("item.held_by")}</dt><dd>${item.held_by}</dd>
-  <dt>${t("item.notes")}</dt><dd>${item.notes}</dd>
+  ${item.model ? html`<dt>${t("item.model")}</dt><dd>${item.model}</dd>` : raw("")}
+  ${item.serial ? html`<dt>${t("item.serial")}</dt><dd>${item.serial}</dd>` : raw("")}
+  ${item.held_by ? html`<dt>${t("item.held_by")}</dt><dd>${item.held_by}</dd>` : raw("")}
+  ${item.notes ? html`<dt>${t("item.notes")}</dt><dd>${item.notes}</dd>` : raw("")}
   <dt>${t("item.qty")}</dt><dd><span data-qty-value>${item.qty}</span> <span class="hint">${t(`form.qty_mode.${item.qty_mode}`)}</span></dd>
   <dt>${t("item.created")}</dt><dd>${fmtDate(c.lang, item.created_at)}</dd>
   <dt>${t("item.updated")}</dt><dd>${fmtDate(c.lang, item.updated_at)}</dd>
@@ -213,7 +222,31 @@ export function fmtDate(lang, iso) {
   }
 }
 
-/** The sticker for this item's current code (§8.3): canvas QR + text + SVG download. */
+/** The item's photo plus its one upload form (§8.8). Admins only, like the panel. */
+export function photoPanel(c, item, code) {
+  const { t } = c;
+  const src = `/photo/${code.toLowerCase()}`;
+  return html`
+<section class="panel photo-panel">
+<h2>${t("item.photo")}</h2>
+${item.photo
+  ? html`<a href="${src}"><img class="photo" src="${src}" alt="${t("item.photo")}" loading="lazy"></a>`
+  : html`<p class="hint">${t("photo.none")}</p>`}
+<form method="post" action="/r/${code.toLowerCase()}/photo" enctype="multipart/form-data">
+${csrfField(c)}
+<label for="photo-file">${item.photo ? t("photo.replace") : t("photo.add")}</label>
+<input id="photo-file" name="photo" type="file" accept="image/jpeg,image/png,image/webp">
+<img class="photo-preview" data-photo-preview alt="" hidden>
+<p class="hint">${t("photo.hint")}</p>
+<div class="actions">
+  <button class="primary" type="submit">${t("photo.upload")}</button>
+  ${item.photo ? html`<label class="radio"><input type="checkbox" name="remove_photo" value="1"> ${t("photo.remove")}</label>` : raw("")}
+</div>
+</form>
+</section>`;
+}
+
+/** The sticker for this item's current code (§8.3): QR + text + SVG download. */
 export function stickerPanel(c, code) {
   const { t } = c;
   const url = c.stickerUrl(code);
@@ -221,15 +254,13 @@ export function stickerPanel(c, code) {
 <section class="panel">
 <h2>${t("codes.sticker_text", { code: prettyCode(code) })}</h2>
 <div class="code-panel">
-  <canvas class="qr" data-qr="${url}" role="img" aria-label="${t("codes.sticker_text", { code })}"></canvas>
+  ${raw(matrixToSvg(qrMatrix(url, "M"), { px: 120, quiet: 2, title: prettyCode(code), cls: "qr" }))}
   <div>
     <div class="code">${prettyCode(code)}</div>
     <div class="hint">${hostOf(url)}</div>
     <p><a class="button" href="/codes/svg?code=${code.toLowerCase()}">${t("codes.download_sticker")}</a></p>
   </div>
 </div>
-<script src="/static/qr.js" defer></script>
-<script src="/static/app.js" defer></script>
 </section>`;
 }
 
@@ -251,6 +282,12 @@ export function formFields(c, values, errors, { code, categories, locations, mod
   const datalist = html`<datalist id="categories">${cats.map((x) => html`<option value="${x}">`)}</datalist><datalist id="locations">${(locations || []).map((x) => html`<option value="${x}">`)}</datalist>`;
   return html`
 ${datalist}
+${mode === "register"
+  ? html`<label for="photo">${t("item.photo")}${err("photo")}</label>
+<input id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp">
+<img class="photo-preview" data-photo-preview alt="" hidden>
+<p class="hint">${t("photo.hint")}</p>`
+  : raw("")}
 <label for="name">${t("item.name")} *${err("name")}</label>
 <input id="name" name="name" required maxlength="200" value="${v.name || ""}" placeholder="${t("form.name_placeholder")}">
 <label for="category">${t("item.category")} *${err("category")}</label>
@@ -298,7 +335,7 @@ export function registerPage(c, { code, values, errors, categories, locations })
     page: "register",
     body: html`<h1>${t("scan.claim_cta")}</h1>
 <p class="readonly">${prettyCode(code)}</p>
-<form method="post" action="/r/${code.toLowerCase()}/register">
+<form method="post" action="/r/${code.toLowerCase()}/register" enctype="multipart/form-data">
 ${csrfField(c)}
 ${formFields(c, values, errors, { code, categories: categories || c.categories, locations: locations || c.locations, mode: "register" })}
 </form>`,
@@ -346,9 +383,45 @@ export function notFoundPage(c) {
   return errorPage(c, 404, "scan.not_found", html`<p>${c.t("scan.not_found_detail")}</p>`);
 }
 
+// --------------------------------------------------------- add by phone (§8.9)
+
+/** The scan page: camera QR reader with a typed code as the fallback. */
+export function scanPage(c, { error } = {}) {
+  const { t } = c;
+  return layout(c, {
+    title: t("add.title"),
+    page: "add",
+    body: html`<h1>${t("add.title")}</h1>
+<p class="subtitle">${t("add.subtitle")}</p>
+${error ? html`<p class="error">${t(error)}</p>` : raw("")}
+<div class="scanner" data-scanner-root
+  data-msg-denied="${t("add.camera_denied")}"
+  data-msg-unsupported="${t("add.unsupported")}"
+  data-msg-scanning="${t("add.scanning")}"
+  data-msg-notours="${t("add.not_ours")}">
+  <video class="scanner-video" data-scanner-video playsinline muted hidden></video>
+  <p class="hint" data-scanner-status>${t("add.camera_hint")}</p>
+  <div class="actions">
+    <button class="primary" type="button" data-scanner-start>${t("add.camera_start")}</button>
+    <button type="button" data-scanner-stop hidden>${t("add.camera_stop")}</button>
+  </div>
+</div>
+<form class="scan-manual" method="get" action="/add">
+  <label for="code">${t("add.manual")}</label>
+  <div class="row">
+    <input id="code" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX">
+    <button type="submit">${t("add.continue")}</button>
+  </div>
+</form>
+<p class="hint">${t("add.https_hint")}</p>
+<script src="/vendor/jsQR.js" defer></script>
+<script src="/static/scan.js" defer></script>`,
+  });
+}
+
 // --------------------------------------------------------- /codes print page (§8.7)
 
-export function codesFormPage(c, { n, start }) {
+export function codesFormPage(c, { n }) {
   const { t } = c;
   return layout(c, {
     title: t("codes.title"),
@@ -356,13 +429,12 @@ export function codesFormPage(c, { n, start }) {
     body: html`<h1>${t("codes.title")}</h1>
 <form class="sheet-form" method="get" action="/codes">
   <div><label for="n">${t("codes.count")}</label><input id="n" name="n" type="number" min="1" max="${500}" value="${n}"></div>
-  <div><label for="start">${t("codes.start")}</label><input id="start" name="start" type="number" min="0" max="${2 ** 30 - 1}" value="${start}"></div>
   <button class="primary" type="submit">${t("codes.view")}</button>
 </form>`,
   });
 }
 
-export function codesSheetPage(c, { stickers, n, start }) {
+export function codesSheetPage(c, { stickers, n }) {
   const { t } = c;
   return layout(c, {
     title: t("codes.title"),
@@ -370,13 +442,13 @@ export function codesSheetPage(c, { stickers, n, start }) {
     body: html`<h1 class="no-print">${t("codes.title")}</h1>
 <div class="no-print actions">
   <button class="primary" type="button" data-print>${t("codes.print")}</button>
-  <a class="button" href="/codes/svg?n=${n}&start=${start}">${t("codes.download_svg")}</a>
-  <a class="button" href="/codes?n=${n}&start=${start + n}">${t("list.next")}</a>
+  <a class="button" href="/codes/svg?n=${n}">${t("codes.download_svg")}</a>
+  <a class="button" href="/codes?n=${n}">${t("codes.new_sheet")}</a>
 </div>
 <div class="sheet">
 ${stickers.map(
-  (s) => html`<div class="sticker">
-  <canvas data-qr="${s.url}"></canvas>
+  (s) => html`<div class="sticker" data-code="${s.code.toLowerCase()}">
+  ${raw(matrixToSvg(qrMatrix(s.url, "M"), { px: 96, quiet: 0 }))}
   <div>
     <div class="text">${stickerLines(s.code)[0]}
 ${stickerLines(s.code)[1]}</div>
@@ -384,18 +456,16 @@ ${stickerLines(s.code)[1]}</div>
   </div>
 </div>`,
 )}
-</div>
-<script src="/static/qr.js" defer></script>
-<script src="/static/app.js" defer></script>`,
+</div>`,
   });
 }
 
 /** The same sheet as one standalone SVG (§7.5), server-rendered from the matrices. */
-export function sheetSvg(stickers, { matrixToSvg, qrMatrix, host }) {
-  // 60 x 30 mm, 3 per row on an A4 page (210 mm usable with 5 mm margins).
-  const W = 60;
-  const H = 30;
-  const perRow = 3;
+export function sheetSvg(stickers, { host }) {
+  // 50 x 25 mm, 4 per row x 11 rows = 44 per A4 page (200 x 275 mm inside 5 mm margins).
+  const W = 50;
+  const H = 25;
+  const perRow = 4;
   const rows = Math.ceil(stickers.length / perRow);
   const width = perRow * W;
   const height = Math.max(1, rows) * H;
@@ -404,20 +474,19 @@ export function sheetSvg(stickers, { matrixToSvg, qrMatrix, host }) {
     const x = (i % perRow) * W;
     const y = Math.floor(i / perRow) * H;
     const m = qrMatrix(s.url, "M");
-    const qr = matrixToSvg(m, { px: 24, quiet: 0, dark: "#000", light: "#fff" }).replace(
-      /^<svg[^>]*>|<\/svg>$/g,
-      "",
-    );
+    // The sheet viewBox is in mm, so scaling the module grid by 24/size gives a 24 mm QR.
+    const qr = matrixToSvg(m, { bodyOnly: true, quiet: 0, dark: "#000", unit: 20 / m.size });
     const lines = stickerLines(s.code);
     parts.push(
-      `<g transform="translate(${x + 3} ${y + 3})">` +
-        `<rect x="-0.1" y="-0.1" width="${W - 0.8}" height="${H - 0.8}" fill="none" stroke="#bbb" stroke-width="0.2"/>` +
-        `<g transform="scale(${24 / 2.8346})" shape-rendering="crispEdges">${qr.replace(/width="\d+" height="\d+"/, 'width="24" height="24"')}</g>` +
-        `<text x="27" y="11" font-family="monospace" font-size="2.9">${esc(lines[0])}</text>` +
-        `<text x="27" y="15.5" font-family="monospace" font-size="2.9">${esc(lines[1])}</text>` +
-        `<text x="27" y="22" font-family="monospace" font-size="2">${esc(host)}</text>` +
+      `<g transform="translate(${x + 1.5} ${y + 1.5})">` +
+        `<rect x="-0.1" y="-0.1" width="${W - 3}" height="${H - 3}" fill="none" stroke="#bbb" stroke-width="0.2"/>` +
+        `<g shape-rendering="crispEdges">${qr}</g>` +
+        `<text x="22" y="8.5" font-family="monospace" font-size="2.4">${esc(lines[0])}</text>` +
+        `<text x="22" y="12" font-family="monospace" font-size="2.4">${esc(lines[1])}</text>` +
+        `<text x="22" y="17" font-family="monospace" font-size="1.7">${esc(host)}</text>` +
         `</g>`,
     );
   });
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#fff"/>${parts.join("")}</svg>`;
 }
+

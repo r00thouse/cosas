@@ -9,10 +9,12 @@ docker-compose.override.y*ml
 compose.override.y*ml
 
 # --- Data ----------------------------------------------------------------------
-# Live SQLite database (DEV: compose.dev.yaml mounts ./dev-data at /data; PROD:
-# ${DB_DIR}, ./data by default). WAL/SHM files are written next to it.
+# Live SQLite database (DEV: ./dev-data, written by `./dev.sh up`; PROD: ${DB_DIR},
+# ./data by default). WAL/SHM files are written next to it.
 data/
 dev-data/
+# Dev state written by ./dev.sh: generated env (dev secrets), logs, pid files.
+.dev/
 *.db
 *.db-wal
 *.db-shm
@@ -23,10 +25,9 @@ backup-*.db
 *.dump
 
 # --- Sticker sheets and code lists ----------------------------------------------
-# Output of `node tools/gen-codes.js ... --out codes.txt` and of the offline sheet
+# Output of `node tools/gen-codes.js ... > codes.txt` and of the offline sheet
 # workflow (§7.5): these list valid stickers, so they must never be committed.
 codes.txt
-codes.counter
 *.svg
 
 # --- Build, deps, logs ----------------------------------------------------------

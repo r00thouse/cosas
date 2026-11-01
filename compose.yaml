@@ -1,5 +1,5 @@
 # Production: app only. TLS terminates at the operator's nginx.
-# Dev overlay: compose.dev.yaml (adds a mock IdP and local secrets).
+# For local development use ./dev.sh instead: it runs node directly, no image build.
 services:
   app:
     build: .
