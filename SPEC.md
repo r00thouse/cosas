@@ -27,8 +27,8 @@ so that an implementer can build it without making design decisions of their own
 - Item movement history, loans, "who has it when", due dates.
 - Barcode / serial-number scanning. (Reading *our own* QR stickers from a phone is in
   scope, §8.9.)
-- Multiple photos per item, thumbnails, EXIF cleanup, a gallery. One photo per item
-  is in scope (§8.8); no other file uploads.
+- Galleries, image editing, EXIF cleanup or server-side thumbnails (several photos per
+  item *are* in scope, §8.8, up to 8; no other file uploads).
 - Email notifications.
 - CSV/JSON *import* (export is in, see §8 route 17).
 - API tokens, public REST API, webhooks.
@@ -367,12 +367,20 @@ CREATE TABLE items (
                         CHECK (qty_mode IN ('count','bin')),  -- see §8.3 qty rules
   qty           INTEGER NOT NULL DEFAULT 1 CHECK (qty >= 0 AND qty <= 100000),
   notes         TEXT    NOT NULL DEFAULT '',      -- may contain newlines
-  photo         TEXT    NOT NULL DEFAULT '',      -- file name in PHOTO_DIR, '' = none (§8.8)
   deleted_at    TEXT,                             -- ISO-8601 UTC or NULL
   created_at    TEXT    NOT NULL,
   updated_at    TEXT    NOT NULL
 );
 CREATE INDEX idx_items_live      ON items (deleted_at);
+
+-- one row per photo (§8.8): the file name lives here, never in `items`
+CREATE TABLE item_photos (
+  id         INTEGER PRIMARY KEY,
+  item_id    INTEGER NOT NULL REFERENCES items(id),
+  name       TEXT    NOT NULL UNIQUE,             -- file name in PHOTO_DIR
+  created_at TEXT    NOT NULL
+);
+CREATE INDEX item_photos_item ON item_photos (item_id, id);
 CREATE INDEX idx_items_category  ON items (category);
 CREATE INDEX idx_items_status    ON items (status);
 CREATE INDEX idx_items_location  ON items (location);
@@ -407,8 +415,11 @@ the code at the time of a rebind and the item it came from. It exists because
 owner's row may keep a retired code string, so "which item did this sticker once belong to" is
 history, not a column on `items`.
 
-`003_photo.js` adds `ALTER TABLE items ADD COLUMN photo TEXT NOT NULL DEFAULT ''`
-(§8.8). The bytes are not in the DB — only the file name is.
+`003_photo.js` added a single `items.photo` column (§8.8); `004_item_photos.js`
+replaces it with the `item_photos` table — it creates the table, copies every existing
+file name into it, and drops the column, so an upgraded database keeps its images and
+the order of the copied rows is the row id. The bytes are never in the DB — only file
+names are.
 
 `db/migrations/002_*.js` and up as needed. `db/migrations/index.js` imports each
 module and exports `[{ version: 1, up }, …]` sorted by version (no directory
@@ -660,8 +671,9 @@ a redirect. All HTML responses are `text/html; charset=utf-8`.
 | 18 | `GET /healthz` | anon | `200 text/plain "ok"` after `SELECT 1`. No DB detail, no version. |
 | 19 | `GET /static/*` | anon | `public/` files, `max-age=3600`, correct `Content-Type`, path-traversal rejected. |
 | 20 | `GET /add` | member | Phone add page (§8.9): the camera QR scanner plus a typed-code fallback. `?code=` is normalized and validated → `302 /r/<code>`; anything invalid → `422 scan.not_found` rendered on the same page. |
-| 21 | `POST /r/:code/photo` | member | Upload or replace the item photo (§8.8): a `photo` file part, or `photo_data` (a downscaled data URL); `remove_photo=1` clears it. 413 `err.photo_too_big`, 422 `err.bad_photo`, 302 back to the item with `?flash=photo`. |
-| 22 | `GET /photo/:code` | member | The stored photo bytes with its real `Content-Type`, `cache-control: private, max-age=300`. 404 when the item has no photo. |
+| 21 | `POST /r/:code/photo` | member | Attach one more photo (§8.8): a `photo` file part, or `photo_data` (a downscaled data URL). 413 `err.photo_too_big`, 422 `err.bad_photo`, 422 `err.photo_limit` at 8 photos, 302 back to the item with `?flash=photo`. |
+| 22 | `POST /r/:code/photo/:photo/delete` | member | Delete one photo and its file (§8.8). 404 for a photo id that is not this item's. 302 with `?flash=photo_removed`. |
+| 22b | `GET /photo/:code/:photo` | member | The bytes of one photo with its real `Content-Type`, `cache-control: private, max-age=300`. 404 when that photo does not exist. |
 | 23 | `GET /manifest.webmanifest` | anon | The PWA manifest (§8.10), `application/manifest+json`, `cache-control: no-cache`. |
 | 24 | `GET /sw.js` | anon | The service worker (§8.10) at the origin root so its scope is `/`, `text/javascript; charset=utf-8`, `cache-control: no-cache`. |
 
@@ -816,17 +828,20 @@ code and returns the item with a fresh sticker.
 
 ### 8.8 Item photos
 
-A photo is optional decoration on an item; the row is still the source of truth.
+Photos are optional decoration on an item; the row is still the source of truth. An
+item may carry up to **8** of them (`MAX_PHOTOS` in `photos.js`); the limit exists
+so the panel stays a grid and the export stays small, not for storage reasons.
 
 - **Storage.** Bytes are files on disk in `PHOTO_DIR` (default
   `dirname(DB_PATH)/photos`; `compose.yaml` overrides it to `/photos`, its own bind
-  mount), named
-  `<item_id>-<12 hex>.<ext>` with mode `0600`. `items.photo` stores only that file
-  name (`TEXT NOT NULL DEFAULT ''`; migration `003_photo`). No image library, no
-  thumbnails, no EXIF stripping — the server only sniffs magic bytes.
+  mount), named `<item_id>-<12 hex>.<ext>` with mode `0600`. The `item_photos` table
+  stores only the file name (`name TEXT NOT NULL UNIQUE`); rows come back in
+  insertion order, which is the display order. No image library, no thumbnails, no
+  EXIF stripping — the server only sniffs magic bytes.
 - **Accepted input.** `image/jpeg`, `image/png`, `image/webp`, detected from the
-  bytes (never from the filename or the `Content-Type`), up to **8 MB**. Anything
-  else → 422 `err.bad_photo`; over the cap → 413 `err.photo_too_big`.
+  bytes (never from the filename or the `Content-Type`), up to **8 MB** each.
+  Anything else → 422 `err.bad_photo`; over the size cap → 413 `err.photo_too_big`;
+  past the photo limit → 422 `err.photo_limit`.
 - **Two upload paths, one meaning.**
   1. `multipart/form-data` with a `photo` file part (the plain `<form>` path, no JS);
   2. `photo_data` in the ordinary form body, a `data:image/…;base64,…` URL produced
@@ -834,18 +849,19 @@ A photo is optional decoration on an item; the row is still the source of truth.
      This is the phone path: a 4 MB camera shot leaves as ~150 KB.
   JS replaces the file input with the hidden `photo_data` field when it downscales,
   so only one of the two ever arrives.
-- **Where it shows.** The register form (§8.2) accepts a photo as part of creating the
-  item. The item page (§8.3) has a photo panel: the image (linked to the full-size
-  bytes), `[Take or choose a photo]` / `[Replace the photo]`, `[Upload]`, and a
-  `[Remove it]` checkbox. Local preview before upload via `[data-photo-preview]`.
-- **Who can see it.** `GET /photo/:code` is a member route, like every other write.
-  Anonymous visitors never get a photo URL, so a photographed serial number cannot
-  leak through the public view. The image is sent with
-  `cache-control: private, max-age=300` so the browser may keep it, the CDN may not.
-- **Deleting an item** keeps its file until a replacement or a `remove`; the CSV
-  export carries the file name in a `photo` column, and `collectGarbage()` removes
-  files no row points at.
-
+- **Where it shows.** The register form (§8.2) accepts one photo as part of creating
+  the item. The item page (§8.3) has a photo panel: a grid of square thumbnails
+  (each linked to the full-size bytes, each with its own `[Delete photo]` form), then
+  `[Take or choose a photo]` / `[Add another photo]`, `[Upload]`, and a local preview
+  via `[data-photo-preview]`. Deleting one photo never touches the others.
+- **Who can see it.** `GET /photo/:code/:photo` is a member route, like every other
+  write. Anonymous visitors never get a photo URL, so a photographed serial number
+  cannot leak through the public view. Images are sent with
+  `cache-control: private, max-age=300` so the browser may keep them, the CDN may not.
+- **Deleting an item** keeps its files (the row survives as deleted, so a restore
+  brings the photos back). The CSV export carries a `photos` column with the count,
+  and `collectGarbage()` on boot removes any file in `PHOTO_DIR` that no
+  `item_photos` row points at.
 ### 8.9 Add an item from the phone (`/add`)
 
 The intended workflow is: print 100+ stickers up front (§8.7), stick them on the
@@ -943,7 +959,7 @@ add.camera_denied, add.unsupported, add.scanning, add.not_ours, add.manual,
 add.continue, add.https_hint
 item.name, item.category, item.model, item.serial, item.location, item.status,
 item.held_by, item.qty, item.notes, item.created, item.updated, item.photo
-photo.none, photo.add, photo.replace, photo.remove, photo.upload, photo.hint
+photo.none, photo.add, photo.add_more, photo.delete, photo.upload, photo.hint
 item.status.available, item.status.in_use, item.status.broken, item.status.missing
 form.field_required, form.register, form.save, form.cancel, form.notes_placeholder,
 form.qty_mode, form.qty_mode.count, form.qty_mode.bin
@@ -951,7 +967,7 @@ form.name_placeholder, form.model_placeholder, form.serial_placeholder,
 form.held_by_placeholder, form.location_placeholder, form.category_placeholder
 action.edit, action.set_status, action.qty_plus, action.qty_minus, action.qty_set,
 action.rebind, action.rebind_confirm, action.rebind_new_code, action.delete,
-action.delete_confirm, action.restore, action.new_with_new_code, action.photo_saved
+action.delete_confirm, action.restore, action.new_with_new_code, action.photo_saved, action.photo_removed
 list.title, list.search_placeholder, list.filter_category, list.filter_status,
 list.filter_all, list.clean, list.empty, list.empty_member, list.range, list.prev,
 list.next, list.scan_hint
@@ -959,7 +975,7 @@ codes.title, codes.count, codes.generate, codes.view, codes.print, codes.new_she
 codes.download_svg, codes.download_sticker, codes.sticker_text
 err.csrf, err.rate_limited, err.code_taken, err.code_invalid, err.field_required,
 err.qty_range, err.not_found, err.range, err.forbidden, err.internal,
-err.bad_photo, err.photo_too_big
+err.bad_photo, err.photo_too_big, err.photo_limit
 
 footer.made_by
 ```
@@ -1036,13 +1052,14 @@ and the request id.
 /logout                   POST only
 /lang/en | /lang/es       set language cookie
 /r/:code                  scan landing (register OR item view+actions)
-/r/:code/photo            POST, upload/replace/remove the photo
+/r/:code/photo            POST, attach one more photo
+/r/:code/photo/:id/delete POST, delete one photo
 /add                      phone add page (camera scanner, ?code= redirect)
 /items/new                POST, create item with a fresh code
 /codes                    print sheet (?n=)
 /codes/svg                SVG download of the sheet
 /export.csv               CSV export
-/photo/:code              item photo bytes (member)
+/photo/:code/:id          one photo's bytes (member)
 /manifest.webmanifest     PWA manifest
 /sw.js                    service worker (root scope)
 /healthz                  liveness
@@ -1346,9 +1363,11 @@ Environment: `./dev.sh` (starts the app with `node --watch` and the mock IdP on
     anonymous user it shows the login prompt whose `next` link returns to
     `/r/<code>` after login (§10.3).
 23. **Photos**: as a member, register an item with a photo attached → the item page
-    shows the image; `GET /photo/<code>` returns it with its real content type;
-    logged out, that URL returns **403**; uploading a text file returns **422** and
-    the old photo stays; `Remove it` → the URL returns **404**.
+    shows a thumbnail in the grid; `GET /photo/<code>/<id>` returns it with its real
+    content type; `POST /r/<code>/photo` with a second image adds a second thumbnail;
+    a 9th is refused with **422** `err.photo_limit`; deleting one thumbnail leaves the
+    other; a data URL that is not an image → **422** and nothing changes; uploading to
+    a photo id that belongs to another item → **404**.
 24. **Add from the phone**: `/add` is member-only (anonymous **403**), the page has a
     `<video>` and a typed-code form, `/add?code=<sticker URL>` redirects to
     `/r/<code>`, and `/add?code=nope` re-renders the scanner with the "unknown
@@ -1362,7 +1381,7 @@ Environment: `./dev.sh` (starts the app with `node --watch` and the mock IdP on
 26. **PWA**: `/manifest.webmanifest` parses as JSON with `display: standalone` and
     the 192/512 icons; the browser offers "Install"; `/sw.js` is served from the root
     with a JavaScript content type. With devtools set to offline, reloading a page
-    shows the offline message rather than a stale item page, and `/photo/<code>` and
+    shows the offline message rather than a stale item page, and `/photo/<code>/<id>` and
     `/export.csv` are never answered from the cache.
 27. **Camera path**: on a phone over https, `/add` opens the camera and a printed
     sticker is recognised in a couple of seconds, landing on `/r/<code>`. A QR for

@@ -14,7 +14,7 @@ Barebones inventory for a hacklab / hackerspace.
   it is first scanned and registered.
 - Add from a phone: `/add` opens the camera, scans a printed sticker, and drops you on
   the register form. Typing the code is always available.
-- One optional photo per item (stored next to the database, none in the DB).
+- Up to 8 photos per item (files next to the database, only names in the DB).
 - Responsive from a 390 px phone up, installable as a PWA, works offline for the shell.
 - Two languages: en, es.
 - `docker compose` deployment behind the operator's existing nginx (TLS terminated
@@ -48,7 +48,7 @@ How to test it, layer by layer, is in [`TESTING.md`](TESTING.md).
 | [`compose.yaml`](compose.yaml) | Production-shaped: app only, published on all interfaces (firewall it), `${DB_DIR}`/`${PHOTO_HOST_DIR}` bind mounts, knobs from `.env` |
 | [`.env.example`](.env.example) | Operator configuration reference |
 | `server.js`, `store.js`, `oidc.js`, `code.js`, `codes.js`, `views.js`, `i18n.js`, `html.js`, `security.js`, `config.js`, `qrcode.js`, `multipart.js`, `photos.js` | The app: no framework, no build step (two deps, for QR only) |
-| `db/migrations/` | Schema migrations, applied at boot (`001_init`, `002_code_history`, `003_photo`) |
+| `db/migrations/` | Schema migrations, applied at boot (`001_init` … `004_item_photos`) |
 | `public/` | CSS, browser scripts (`app.js`, `scan.js`), `sw.js`, manifest, icons |
 | `package.json`, `package-lock.json` | Runtime deps: `qrcode-generator` (server-side sticker SVG) and `jsqr` (camera decoding, served at `/vendor/jsQR.js`) |
 | `tools/mock-idp/` | Dev-only stand-in for Kanidm (PKCE + ES256, same shape) |

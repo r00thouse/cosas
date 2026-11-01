@@ -161,12 +161,13 @@ dl.item dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 }
 .scan-manual { border-top: 1px solid var(--line); padding-top: 0.5rem; margin-top: 0.5rem; }
 
-/* §8.8: the item photo and the local preview of a picked file */
-.photo { display: block; max-width: 100%; max-height: 22rem; border-radius: 6px; }
-.photo-panel .actions { align-items: center; }
+/* §8.8: the item photo grid and the local preview of a picked file */
+.photo-grid { list-style: none; margin: 0.75rem 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0.75rem; }
+.photo-grid li { display: flex; flex-direction: column; gap: 0.25rem; margin: 0; }
+.photo-thumb { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: var(--bg-soft, #eee); }
+.photo-grid form { margin: 0; }
+.photo-grid button.link { font-size: 0.85rem; padding: 0 0 0.15rem; }
 .photo-preview { display: block; max-width: 100%; max-height: 12rem; border-radius: 6px; margin-top: 0.5rem; border: 1px solid var(--line); }
-.photo-panel label.radio { display: inline-flex; gap: 0.35rem; align-items: center; margin: 0.5rem 0; font-size: 1rem; color: var(--fg); }
-.photo-panel input[type="checkbox"] { width: auto; }
 
 /* Who is logged in, and with which role (§8.1). */
 nav .whoami { display: inline-flex; align-items: baseline; gap: 0.35rem; font-size: 0.85rem; color: var(--muted); }

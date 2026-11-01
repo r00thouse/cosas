@@ -22,8 +22,12 @@ export function createStore(db, { log } = {}) {
       "SELECT i.* FROM item_codes c JOIN items i ON i.id = c.item_id WHERE c.code = ? AND i.deleted_at IS NULL",
     ),
     insertItem: db.prepare(`INSERT INTO items
-      (code, code_seq, name, category, model, serial, location, status, held_by, qty_mode, qty, notes, photo, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+      (code, code_seq, name, category, model, serial, location, status, held_by, qty_mode, qty, notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+    photosOf: db.prepare("SELECT id, name, created_at FROM item_photos WHERE item_id = ? ORDER BY id"),
+    photoById: db.prepare("SELECT id, name FROM item_photos WHERE id = ? AND item_id = ?"),
+    insertPhoto: db.prepare("INSERT INTO item_photos (item_id, name, created_at) VALUES (?, ?, ?)"),
+    deletePhoto: db.prepare("DELETE FROM item_photos WHERE id = ?"),
     insertCode: db.prepare("INSERT INTO item_codes (code, item_id, created_at) VALUES (?, ?, ?)"),
     forgetCode: db.prepare("INSERT INTO forgotten_codes (code, reason, at) VALUES (?, ?, ?)"),
     deleteCode: db.prepare("DELETE FROM item_codes WHERE code = ?"),
@@ -93,7 +97,6 @@ export function createStore(db, { log } = {}) {
       fields.qty_mode,
       fields.qty,
       fields.notes,
-      fields.photo || "",
       now,
       now,
     );
@@ -151,19 +154,41 @@ export function createStore(db, { log } = {}) {
     return stmt.byId.get(id);
   }
 
-  /** The photo file name of an item ('' = no photo). Audited like any other change. */
-  function setPhoto(id, code, name, actor) {
-    const before = stmt.byId.get(id);
-    if (!before) return undefined;
+  /** Photos of an item, oldest first (§8.8). The panel shows them in this order. */
+  const photosOf = (itemId) => stmt.photosOf.all(itemId);
+
+  /** Attach an already-written file name to an item; returns the new photo list. */
+  function addPhoto(itemId, code, name, actor) {
     const now = nowIso();
-    db.prepare("UPDATE items SET photo = ?, updated_at = ? WHERE id = ?").run(String(name || ""), now, id);
-    audit(code, "photo", actor, { photo: before.photo }, { photo: String(name || "") }, now);
-    return stmt.byId.get(id);
+    stmt.insertPhoto.run(itemId, String(name), now);
+    db.prepare("UPDATE items SET updated_at = ? WHERE id = ?").run(now, itemId);
+    audit(code, "photo_add", actor, null, { name }, now);
+    return stmt.photosOf.all(itemId);
+  }
+
+  /** Detach one photo; returns the removed row (so the caller can delete the file). */
+  function removePhoto(itemId, photoId, code, actor) {
+    const row = stmt.photoById.get(Number(photoId), itemId);
+    if (!row) return null;
+    const now = nowIso();
+    stmt.deletePhoto.run(row.id);
+    db.prepare("UPDATE items SET updated_at = ? WHERE id = ?").run(now, itemId);
+    audit(code, "photo_remove", actor, { name: row.name }, null, now);
+    return row;
   }
 
   /** Every photo file name still referenced by a row — the keep-list for GC. */
   function photoNames() {
-    return db.prepare("SELECT photo FROM items WHERE photo <> ''").all().map((r) => r.photo);
+    return db.prepare("SELECT name FROM item_photos").all().map((r) => r.name);
+  }
+
+  /** item_id -> photo count, for the CSV export. One query, not one per row. */
+  function photoCounts() {
+    const map = new Map();
+    for (const r of db.prepare("SELECT item_id, count(*) AS n FROM item_photos GROUP BY item_id").all()) {
+      map.set(r.item_id, r.n);
+    }
+    return map;
   }
 
   /**
@@ -271,8 +296,11 @@ export function createStore(db, { log } = {}) {
     setStatus,
     bumpQty,
     setQty,
-    setPhoto,
+    photosOf,
+    addPhoto,
+    removePhoto,
     photoNames,
+    photoCounts,
     softDelete,
     restore,
     rebind,

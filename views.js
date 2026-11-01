@@ -159,7 +159,7 @@ export const paddedCode = (input) => {
 
 // ------------------------------------------------- public view / action sheet (§8.3)
 
-export function itemPage(c, { code, item, flash, errors, editing, confirm }) {
+export function itemPage(c, { code, item, photos = [], flash, errors, editing, confirm }) {
   const { t, admin } = c;
   const publicPart = html`
 <h1>${item.name || item.category || prettyCode(code)}</h1>
@@ -175,7 +175,7 @@ export function itemPage(c, { code, item, flash, errors, editing, confirm }) {
   let memberPart = raw("");
   if (admin) {
     memberPart = html`
-${photoPanel(c, item, code)}
+${photoPanel(c, item, code, photos)}
 <section class="panel">
 <h2>${t("item.name")}: ${item.name}</h2>
 <dl class="item">
@@ -236,25 +236,32 @@ export function fmtDate(lang, iso) {
 }
 
 /** The item's photo plus its one upload form (§8.8). Admins only, like the panel. */
-export function photoPanel(c, item, code) {
+export function photoPanel(c, item, code, photos = []) {
   const { t } = c;
-  const src = `/photo/${code.toLowerCase()}`;
+  const base = `/photo/${code.toLowerCase()}`;
   return html`
 <section class="panel photo-panel">
 <h2>${t("item.photo")}</h2>
-${item.photo
-  ? html`<a href="${src}"><img class="photo" src="${src}" alt="${t("item.photo")}" loading="lazy"></a>`
+${photos.length
+  ? html`<ul class="photo-grid">
+${photos.map(
+  (p) => html`<li>
+<a href="${base}/${p.id}"><img class="photo-thumb" src="${base}/${p.id}" alt="${t("item.photo")}" loading="lazy"></a>
+<form method="post" action="/r/${code.toLowerCase()}/photo/${p.id}/delete">
+${csrfField(c)}
+<button class="link danger" type="submit">${t("photo.delete")}</button>
+</form>
+</li>`,
+)}
+</ul>`
   : html`<p class="hint">${t("photo.none")}</p>`}
 <form method="post" action="/r/${code.toLowerCase()}/photo" enctype="multipart/form-data">
 ${csrfField(c)}
-<label for="photo-file">${item.photo ? t("photo.replace") : t("photo.add")}</label>
+<label for="photo-file">${photos.length ? t("photo.add_more") : t("photo.add")}</label>
 <input id="photo-file" name="photo" type="file" accept="image/jpeg,image/png,image/webp">
 <img class="photo-preview" data-photo-preview alt="" hidden>
 <p class="hint">${t("photo.hint")}</p>
-<div class="actions">
-  <button class="primary" type="submit">${t("photo.upload")}</button>
-  ${item.photo ? html`<label class="radio"><input type="checkbox" name="remove_photo" value="1"> ${t("photo.remove")}</label>` : raw("")}
-</div>
+<button class="primary" type="submit">${t("photo.upload")}</button>
 </form>
 </section>`;
 }

@@ -3,5 +3,6 @@
 import * as m1 from "./001_init.js";
 import * as m2 from "./002_code_history.js";
 import * as m3 from "./003_photo.js";
+import * as m4 from "./004_item_photos.js";
 
-export default [m1, m2, m3].sort((a, b) => a.version - b.version);
+export default [m1, m2, m3, m4].sort((a, b) => a.version - b.version);

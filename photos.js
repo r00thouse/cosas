@@ -1,11 +1,14 @@
 // Item photos (SPEC.md §8.8). Bytes live on disk next to the database, one file per
-// item, and `items.photo` stores only the file name. No image library: the phone
+// photo, and the `item_photos` table stores only the file name. No image library: the phone
 // downscales before upload and the server only checks the magic bytes.
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
 export const MAX_PHOTO = 8 * 1024 * 1024;
+
+/** How many photos one item may carry (§8.8). The panel is a grid, not a gallery. */
+export const MAX_PHOTOS = 8;
 
 const KINDS = [
   {
@@ -42,7 +45,7 @@ export function parseDataUrl(text) {
   return bytes.length ? bytes : null;
 }
 
-/** Store `bytes` for `itemId`; returns the file name to keep in `items.photo`. */
+/** Store `bytes` for `itemId`; returns the file name to keep in `item_photos.name`. */
 export async function savePhoto(dir, itemId, bytes, ext) {
   await mkdir(dir, { recursive: true });
   const name = `${Number(itemId)}-${randomBytes(6).toString("hex")}.${ext}`;
@@ -68,7 +71,7 @@ export function photoFile(dir, name) {
   return m ? { path: join(dir, m[0]), mime: KIND_BY_EXT[m[2]].mime } : null;
 }
 
-/** Files on disk that no live row points at (`items.photo`), so a crash cannot leak. */
+/** Files on disk that no live row points at (`item_photos`), so a crash cannot leak. */
 export async function collectGarbage(dir, keep) {
   let names;
   try {

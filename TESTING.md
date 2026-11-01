@@ -147,8 +147,10 @@ bug report can just say "12.7 fails".
 11. **Search and filters** (12.16) — add a second item ("Laptop Dell"), search `mon`
     and filter by status; `q=%` should not return everything.
 12. **CSV** (12.17) — `/export.csv` downloads; it opens in LibreOffice or Excel.
-13. **Photo** (12.23) — on an item, *Take or choose a photo*, pick any JPEG/PNG, upload.
-    The image appears on the page; open it directly (`/photo/<code>`) and log out —
+13. **Photos** (12.23) — on an item, *Take or choose a photo*, pick any JPEG/PNG, upload.
+    It appears as a thumbnail in the grid; *Add another photo* adds a second one, and
+    each thumbnail has its own *Delete photo* that leaves the others alone. Open one
+    directly (`/photo/<code>/<id>`) and log out —
     that URL now returns 403. Try uploading a `.txt` renamed to `.jpg`: the server
     sniffs the bytes and answers 422, keeping the old photo.
 14. **Add from the phone** (12.24) — click *Add* in the header. The page offers the

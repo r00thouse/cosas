@@ -15,7 +15,7 @@ import { createStore, Conflict, STATUSES, QTY_MODES } from "./store.js";
 import { normalize as normalizeCode, parse as parseCode, normalizeScan } from "./code.js";
 import { parseSheetQuery, sheetCodes, freshCode, stickerUrl } from "./codes.js";
 import { boundaryOf, parseMultipart, MultipartError } from "./multipart.js";
-import { MAX_PHOTO, parseDataUrl, savePhoto, removePhoto, photoFile, sniff, collectGarbage } from "./photos.js";
+import { MAX_PHOTO, MAX_PHOTOS, parseDataUrl, savePhoto, removePhoto, photoFile, sniff, collectGarbage } from "./photos.js";
 import { makeT, pickLang, LANGS } from "./i18n.js";
 import { sign, unsign, csrfFor, csrfValid, newSecret, clientIp, createLimiter } from "./security.js";
 import { OidcClient, pkcePair, roleDiagnostics, safeNext, OidcError } from "./oidc.js";
@@ -245,13 +245,15 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     if (f === "+1") return "action.qty_plus";
     if (f === "-1") return "action.qty_minus";
     if (f === "photo") return "action.photo_saved";
+    if (f === "photo_removed") return "action.photo_removed";
     return null;
   }
 
   function renderItem(req, res, status, session, { item, code, editing = false, confirm = null, errors = null, url = null }) {
     const c = ctxFor(req, session);
     const flash = url ? flashFor(req, url) : null;
-    sendHtml(req, res, status, V.itemPage(c, { code, item, flash, errors, editing, confirm }));
+    const photos = item ? store.photosOf(item.id) : [];
+    sendHtml(req, res, status, V.itemPage(c, { code, item, photos, flash, errors, editing, confirm }));
   }
 
   // ---------------------------------------------------------------- handlers
@@ -340,35 +342,41 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     }
     if (photo) {
       const name = await savePhoto(cfg.photoDir, item.id, photo.bytes, photo.ext);
-      item = store.setPhoto(item.id, item.code, name, session.sub);
+      store.addPhoto(item.id, item.code, name, session.sub);
     }
     log("info", "item.register", { code: item.code, actor: session.sub, photo: Boolean(photo) });
     redirect(res, `/r/${item.code.toLowerCase()}`);
   }
 
-  /** `POST /r/:code/photo` (§8.8): add, replace, or clear the item's photo. */
+  /** `POST /r/:code/photo` (§8.8): attach one more photo, up to MAX_PHOTOS. */
   async function postPhoto(req, res, session, { code: codeParam, form, files }) {
     const { item } = boundOr410(codeParam);
     const home = `/r/${item.code.toLowerCase()}`;
-    if (form.remove_photo === "1") {
-      store.setPhoto(item.id, item.code, "", session.sub);
-      await removePhoto(cfg.photoDir, item.photo);
-      log("info", "item.photo_remove", { code: item.code, actor: session.sub });
-      return redirect(res, `${home}?flash=photo`);
-    }
+    if (store.photosOf(item.id).length >= MAX_PHOTOS) throw new HttpError(422, "err.photo_limit");
     const photo = readPhoto(form, files);
     if (!photo) throw new HttpError(422, "err.bad_photo");
     const name = await savePhoto(cfg.photoDir, item.id, photo.bytes, photo.ext);
-    store.setPhoto(item.id, item.code, name, session.sub);
-    await removePhoto(cfg.photoDir, item.photo);
-    log("info", "item.photo", { code: item.code, bytes: photo.bytes.length, actor: session.sub });
+    store.addPhoto(item.id, item.code, name, session.sub);
+    log("info", "item.photo_add", { code: item.code, bytes: photo.bytes.length, actor: session.sub });
     redirect(res, `${home}?flash=photo`);
   }
 
-  /** `GET /photo/:code` (§8.8): the bytes of the item's photo, admins only. */
-  async function handlePhoto(req, res, session, url, codeParam) {
+  /** `POST /r/:code/photo/:photo/delete` (§8.8): drop one photo and its file. */
+  async function postPhotoDelete(req, res, session, { code: codeParam, photo: photoParam }) {
     const { item } = boundOr410(codeParam);
-    const f = item.photo ? photoFile(cfg.photoDir, item.photo) : null;
+    const home = `/r/${item.code.toLowerCase()}`;
+    const row = store.removePhoto(item.id, Number(photoParam), item.code, session.sub);
+    if (!row) throw new HttpError(404, "err.not_found");
+    await removePhoto(cfg.photoDir, row.name);
+    log("info", "item.photo_remove", { code: item.code, actor: session.sub });
+    redirect(res, `${home}?flash=photo_removed`);
+  }
+
+  /** `GET /photo/:code/:photo` (§8.8): the bytes of one photo, admins only. */
+  async function handlePhoto(req, res, session, url, { code: codeParam, photo: photoParam }) {
+    const { item } = boundOr410(codeParam);
+    const row = store.photosOf(item.id).find((p) => p.id === Number(photoParam));
+    const f = row ? photoFile(cfg.photoDir, row.name) : null;
     if (!f) throw new HttpError(404, "err.not_found");
     let data;
     try {
@@ -532,10 +540,14 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
   }
 
   function handleExport(req, res) {
-    const cols = ["code", "name", "category", "model", "serial", "location", "status", "held_by", "qty", "notes", "photo", "created_at", "updated_at"];
+    const cols = ["code", "name", "category", "model", "serial", "location", "status", "held_by", "qty", "notes", "photos", "created_at", "updated_at"];
     const rows = db.prepare("SELECT * FROM items WHERE deleted_at IS NULL ORDER BY id").all();
+    const photoCount = store.photoCounts();
     const lines = [cols.join(",")];
-    for (const r of rows) lines.push(cols.map((k) => csvCell(r[k])).join(","));
+    for (const r of rows) {
+      const cells = cols.map((k) => csvCell(k === "photos" ? (photoCount.get(r.id) || 0) : r[k]));
+      lines.push(cells.join(","));
+    }
     const day = new Date().toISOString().slice(0, 10);
     send(req, res, 200, lines.join("\r\n") + "\r\n", {
       "content-type": "text/csv; charset=utf-8",
@@ -674,10 +686,11 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     ["POST", "/r/:code/status", postStatus, "member"],
     ["POST", "/r/:code/qty", postQty, "member"],
     ["POST", "/r/:code/photo", postPhoto, "member"],
+    ["POST", "/r/:code/photo/:photo/delete", postPhotoDelete, "member"],
     ["POST", "/r/:code/rebind", postRebind, "member"],
     ["POST", "/r/:code/delete", postDelete, "member"],
     ["POST", "/r/:code/restore", postRestore, "member"],
-    ["GET", "/photo/:code", (req, res, s, url, p) => handlePhoto(req, res, s, url, p.code), "member"],
+    ["GET", "/photo/:code/:photo", (req, res, s, url, p) => handlePhoto(req, res, s, url, p), "member"],
     ["POST", "/items/new", postItemsNew, "member"],
     ["GET", "/add", (req, res, s, url) => handleAdd(req, res, s, url), "member"],
     ["GET", "/manifest.webmanifest", (req, res, s, url) => handleRootFile(req, res, url.pathname), "anon"],

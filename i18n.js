@@ -90,9 +90,9 @@ export const STRINGS = {
 
   "item.photo": { en: "Photo", es: "Foto" },
   "photo.none": { en: "No photo yet.", es: "Todavía no hay foto." },
+  "photo.add_more": { en: "Add another photo", es: "Agregar otra foto" },
+  "photo.delete": { en: "Delete photo", es: "Borrar foto" },
   "photo.add": { en: "Take or choose a photo", es: "Tomar o elegir una foto" },
-  "photo.replace": { en: "Replace the photo", es: "Cambiar la foto" },
-  "photo.remove": { en: "Remove it", es: "Quitarla" },
   "photo.upload": { en: "Upload", es: "Subir" },
   "photo.hint": {
     en: "JPEG, PNG or WebP up to 8 MB. A phone sends a smaller copy.",
@@ -150,6 +150,7 @@ export const STRINGS = {
   "action.restore": { en: "Restore item", es: "Restaurar la cosa" },
   "action.new_with_new_code": { en: "New item with a new code", es: "Cosa nueva con un código nuevo" },
   "action.photo_saved": { en: "Photo saved.", es: "Foto guardada." },
+  "action.photo_removed": { en: "Photo deleted.", es: "Foto borrada." },
 
   "list.search_placeholder": { en: "Search", es: "Buscar" },
   "list.filter_category": { en: "Category", es: "Categoría" },
@@ -195,6 +196,10 @@ export const STRINGS = {
     es: "Ese archivo no es una imagen JPEG, PNG o WebP.",
   },
   "err.photo_too_big": { en: "The photo is larger than 8 MB.", es: "La foto pesa más de 8 MB." },
+  "err.photo_limit": {
+    en: "That item already has the maximum number of photos.",
+    es: "Esa cosa ya tiene el máximo de fotos.",
+  },
 
   "footer.made_by": { en: "for the hacklab, with no dependencies", es: "para el hacklab, sin dependencias" },
 };

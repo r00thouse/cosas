@@ -343,7 +343,7 @@ test("add by phone: /add scanner page is admin-only and accepts the typed fallba
   assert.match(bad.text, /data-scanner-video/, "the page asks again instead of a bare error");
 });
 
-test("photo upload: multipart register, replace, remove, and access control", async () => {
+test("photos: multipart register, add several, delete one, access control", async () => {
   const c = await login("admin");
   const [code] = codesOf(await c("/codes?n=1"));
   const token = csrfOf(await c(`/r/${code}`));
@@ -372,38 +372,45 @@ test("photo upload: multipart register, replace, remove, and access control", as
   });
   assert.equal(created.status, 302, `multipart register: ${created.text.slice(0, 200)}`);
 
-  const item = await c(`/r/${code}`);
-  assert.match(item.text, /Switch 8 puertos/);
-  assert.match(item.text, new RegExp(`<img class="photo" src="/photo/${code}"`));
+  const first = (await c(`/r/${code}`)).text;
+  assert.match(first, /Switch 8 puertos/);
+  const firstId = /<img class="photo-thumb" src="\/photo\/[0-9a-z]+\/(\d+)"/.exec(first)?.[1];
+  assert.ok(firstId, "the registered photo is in the grid");
+  assert.match(first, /Add another photo/, "the uploader switches to 'add another'");
 
-  const img = await c(`/photo/${code}`);
+  const img = await c(`/photo/${code}/${firstId}`);
   assert.equal(img.status, 200);
   assert.match(img.headers.get("content-type"), /image\/jpeg/);
   assert.match(img.headers.get("cache-control"), /private/);
-  assert.equal((await client()(`/photo/${code}`)).status, 403, "photos need a session");
+  assert.equal((await client()(`/photo/${code}/${firstId}`)).status, 403, "photos need a session");
 
-  // Replace through the phone's downscaled data URL.
-  const swapped = await c(
+  // The phone's downscaled data URL adds a second photo; both stay.
+  const added = await c(
     `/r/${code}/photo`,
     form({ _csrf: token, photo_data: `data:image/png;base64,${PNG.toString("base64")}` }),
   );
-  assert.equal(swapped.status, 302);
-  assert.match((await c(`/photo/${code}`)).headers.get("content-type"), /image\/png/);
+  assert.equal(added.status, 302);
+  const two = (await c(`/r/${code}`)).text;
+  const ids = [...two.matchAll(/<img class="photo-thumb" src="\/photo\/[0-9a-z]+\/(\d+)"/g)].map((m) => m[1]);
+  assert.equal(ids.length, 2, "two photos in the grid");
+  assert.match((await c(`/photo/${code}/${ids[1]}`)).headers.get("content-type"), /image\/png/);
 
-  // Bytes that are not an image are refused, and the stored photo survives.
+  // Bytes that are not an image are refused and the grid is untouched.
   const notImage = await c(
     `/r/${code}/photo`,
     form({ _csrf: token, photo_data: `data:image/png;base64,${Buffer.from("this is not a png at all").toString("base64")}` }),
   );
   assert.equal(notImage.status, 422);
-  assert.equal((await c(`/photo/${code}`)).status, 200);
-
   // Nothing picked at all: a clear error, not a 500.
   assert.equal((await c(`/r/${code}/photo`, form({ _csrf: token }))).status, 422);
 
-  const removed = await c(`/r/${code}/photo`, form({ _csrf: token, remove_photo: "1" }));
+  // Delete the first photo only; the second must survive.
+  const removed = await c(`/r/${code}/photo/${firstId}/delete`, form({ _csrf: token }));
   assert.equal(removed.status, 302);
-  assert.equal((await c(`/photo/${code}`)).status, 404);
+  assert.equal((await c(`/photo/${code}/${firstId}`)).status, 404, "deleted photo is gone");
+  assert.equal((await c(`/photo/${code}/${ids[1]}`)).status, 200, "the other photo survives");
+  // Deleting it twice is a 404, not a crash.
+  assert.equal((await c(`/r/${code}/photo/${firstId}/delete`, form({ _csrf: token }))).status, 404);
 });
 
 test("rate limit: 31st GET on /r/* is 429", async () => {
