@@ -819,12 +819,30 @@ function safeBack(req) {
 }
 
 
+/** Open the database, explaining the usual container mistake when it fails. */
+function openBootDb(cfg) {
+  try {
+    return openDb(cfg.dbPath);
+  } catch (err) {
+    const msg = String((err && err.message) || err);
+    if (/unable to open|EACCES|EROFS|SQLITE_CANTOPEN/i.test(msg)) {
+      log("error", "db.open_failed", {
+        path: cfg.dbPath,
+        error: msg,
+        hint: `the directory holding ${cfg.dbPath} must be writable by uid ${process.getuid?.() ?? "node"}; a bind-mounted host directory created by Docker is owned by root, so run: mkdir -p data photos && sudo chown -R 1000:1000 data photos`,
+      });
+      process.exit(1);
+    }
+    throw err;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Boot (`node server.js`, SPEC.md §10.1). Compose runs exactly this.
 
 if (process.argv[1] && normalize(process.argv[1]) === normalize(fileURLToPath(import.meta.url))) {
   const cfg = loadConfig();
-  const db = openDb(cfg.dbPath);
+  const db = openBootDb(cfg);
   const oidc = new OidcClient(cfg, log);
   await oidc.init();
   const { server, store } = createApp(cfg, { db, oidc });

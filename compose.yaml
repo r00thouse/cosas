@@ -23,10 +23,13 @@ services:
     volumes: !override
       - ${DB_DIR:-./data}:/data
       - ${PHOTO_HOST_DIR:-./photos}:/photos
-    # Loopback only in prod: nginx is the only client. Change PORT in .env and the
-    # published port follows.
+    # Published on every interface (nginx may live on another host or in another
+    # network namespace). Nothing else guards the app: if the machine is reachable from
+    # untrusted networks, firewall this port and let only nginx through, otherwise a
+    # direct client can spoof X-Forwarded-For and dodge the rate limiter (TRUST_PROXY=1).
+    # Change PORT in .env and the published port follows.
     ports: !override
-      - "127.0.0.1:${PORT:-8080}:${PORT:-8080}"
+      - "${PORT:-8080}:${PORT:-8080}"
     healthcheck:
       test:
         - CMD

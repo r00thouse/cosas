@@ -1039,13 +1039,22 @@ services:
       - ${DB_DIR:-./data}:/data
       - ${PHOTO_HOST_DIR:-./photos}:/photos
     ports:
-      - "127.0.0.1:${PORT:-8080}:${PORT:-8080}"   # loopback only: nginx is the client
+      - "${PORT:-8080}:${PORT:-8080}"   # all interfaces; firewall it (see below)
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:${PORT:-8080}/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
 ```
+
+The published port is bound to **every interface** on purpose: nginx is not
+necessarily on the same host (or the same network namespace), so a loopback-only
+publish would make `proxy_pass http://127.0.0.1:8080` impossible from anywhere else.
+The cost is that the app is directly reachable, and with `TRUST_PROXY=1` it believes
+`X-Forwarded-For` — a client that can reach the port can spoof its own address and
+walk around the `/r/*` rate limiter. So the port must be firewalled to the proxy:
+`ufw allow from <nginx address> to any port 8080 proto tcp` (or the equivalent), and
+`TRUST_PROXY=0` if the app is ever published without a proxy in front.
 
 **`.env` wins.** Compose reads `.env` for `${…}` interpolation *and* hands the whole
 file to the container via `env_file`, but `env_file` loses to a literal `environment:`

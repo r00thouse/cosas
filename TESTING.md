@@ -227,6 +227,7 @@ The mock IdP stands in for Kanidm and mimics its endpoints
 
 | Symptom | Fix |
 |---|---|
+| container restarts with `db.open_failed ... permission denied` | the host directory behind `DB_DIR`/`PHOTO_HOST_DIR` is not writable by uid 1000 (Docker creates a missing one as root): `mkdir -p data photos && sudo chown -R 1000:1000 data photos` |
 | `port 8080 is busy` / `:9010 is busy` | something else is using it: `ss -ltnp \| grep -E ':8080\|:9010'`, then stop it (or `PORT`/ports in `dev.sh`) |
 | `node:sqlite` missing at boot | not an official Node 24 build; install Node 24 from nodejs.org |
 | `setsid not found` | util-linux is missing (rare); run `npm run dev` and `npm run mock-idp` in two shells |

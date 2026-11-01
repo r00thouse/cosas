@@ -45,7 +45,7 @@ How to test it, layer by layer, is in [`TESTING.md`](TESTING.md).
 | [`SPEC.md`](SPEC.md) | The complete spec: routes, schema, OIDC, codes/QR, i18n, ops, acceptance checklist, build order, decision log |
 | [`TESTING.md`](TESTING.md) | Manual test guide for the local platform |
 | [`dev.sh`](dev.sh) | Powers on / off / resets / smoke-tests the local platform (plain node, no build) |
-| [`compose.yaml`](compose.yaml) | Production-shaped: app only, loopback port, `${DB_DIR}` and `${PHOTO_HOST_DIR}` bind mounts, knobs read from `.env` |
+| [`compose.yaml`](compose.yaml) | Production-shaped: app only, published on all interfaces (firewall it), `${DB_DIR}`/`${PHOTO_HOST_DIR}` bind mounts, knobs from `.env` |
 | [`.env.example`](.env.example) | Operator configuration reference |
 | `server.js`, `store.js`, `oidc.js`, `code.js`, `codes.js`, `views.js`, `i18n.js`, `html.js`, `security.js`, `config.js`, `qrcode.js`, `multipart.js`, `photos.js` | The app: no framework, no build step (two deps, for QR only) |
 | `db/migrations/` | Schema migrations, applied at boot (`001_init`, `002_code_history`, `003_photo`) |
@@ -61,6 +61,10 @@ How to test it, layer by layer, is in [`TESTING.md`](TESTING.md).
 public hostname and store `CODE_SECRET` **before printing stickers** — both are baked
 into every printed QR (SPEC.md §9.3b).
 
+The published port listens on every interface so nginx can live elsewhere; firewall
+it to the proxy host and keep `TRUST_PROXY=1` only when a proxy really sets
+`X-Forwarded-For`.
+
 `.env` is authoritative: `PORT`, `DB_PATH`, `PHOTO_DIR`, `TRUST_PROXY`, `DB_DIR` and
 `PHOTO_HOST_DIR` are interpolated by `compose.yaml` (`${NAME:-default}`), so editing the
 file is enough — no compose edits, no `-e` flags.
@@ -70,5 +74,6 @@ All state lives inside this directory, in the two bind mounts `./data` (database
 volumes, no home directories — so `tar` of the checkout (minus `node_modules/`) is a
 complete backup, and restoring it is "copy it back, `docker compose up -d --build`".
 Both directories must be writable by uid 1000 (the image's `node` user):
-`mkdir -p data photos && sudo chown 1000:1000 data photos`. Hot copy of just the
+`mkdir -p data photos && sudo chown 1000:1000 data photos`. Skip that and the app exits
+with `db.open_failed` plus that exact hint in `docker compose logs`. Hot copy of just the
 database: `sqlite3 data/cosas.db ".backup 'data/backup-$(date +%F).db'"`.
