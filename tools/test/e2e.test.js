@@ -360,6 +360,12 @@ test("add by phone: /add scanner page is admin-only and accepts the typed fallba
   assert.match(page.text, /\/vendor\/jsQR\.js/);
   assert.match(page.text, /\/static\/scan\.js/);
   assert.match(page.text, /action="\/add"/);
+  // The menu marks where you are: Add here, Items on the list, never both.
+  assert.match(page.text, /<a class="nav-add" href="\/add" aria-current="page">/);
+  assert.equal((page.text.match(/aria-current="page"/g) || []).length, 1);
+  const home = await c("/");
+  assert.match(home.text, /<a href="\/" aria-current="page">/);
+  assert.doesNotMatch(home.text, /class="nav-add" href="\/add" aria-current/);
 
   const [code] = codesOf(await c("/codes?n=1"));
   const viaUrl = await c(`/add?code=${encodeURIComponent(`${ORIGIN}/r/${code}`)}`);

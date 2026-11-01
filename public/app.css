@@ -61,10 +61,18 @@ h2 { font-size: 1.05rem; margin: 0 0 0.6rem; }
   padding-bottom: 0.6rem;
   margin-bottom: 1rem;
 }
-.top .brand { font-weight: 600; text-decoration: none; color: var(--fg); }
+.top .brand {
+  flex: 1 1 100%;
+  text-align: center;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  color: var(--fg);
+}
 nav { display: flex; flex-wrap: wrap; gap: 0.4rem 0.75rem; align-items: center; }
 nav form { display: inline; }
-.nav-main { order: 3; flex: 1 1 100%; }
 .nav-main a {
   text-decoration: none;
   padding: 0.3rem 0.75rem;
@@ -73,7 +81,8 @@ nav form { display: inline; }
   background: var(--surface);
   white-space: nowrap;
 }
-.nav-account { order: 2; font-size: 0.9rem; }
+.nav-main { order: 2; flex: 1 1 auto; }
+.nav-account { order: 3; font-size: 0.9rem; }
 .lang { display: inline-flex; gap: 0.25rem; }
 .subtitle { color: var(--muted); margin: 0 0 1rem; }
 footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 2rem; padding-top: 0.75rem; font-size: 0.85rem; }
@@ -306,7 +315,10 @@ nav .whoami .badge { font-size: 0.7rem; }
 nav .whoami .role-member { color: var(--muted); }
 
 /* §8.9: the Add shortcut is the one nav item a phone user looks for. */
-.nav-main .nav-add { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 500; }
+/* The page you are on is filled; Add keeps an accent outline so it is still the
+   first thing a phone user sees, without looking selected everywhere. */
+.nav-main .nav-add { border-color: var(--accent); font-weight: 600; }
+.nav-main a[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 
 /* Touch devices: every control is at least one finger tall (44 px). */
 @media (pointer: coarse) {
@@ -326,7 +338,10 @@ nav .whoami .role-member { color: var(--muted); }
   .top { gap: 0.4rem 0.75rem; margin-bottom: 0.85rem; }
   .nav-main { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
   .nav-main a { justify-content: center; text-align: center; min-width: 0; white-space: normal; padding: 0.3rem 0.5rem; }
-  .nav-account { gap: 0.25rem 0.6rem; }
+  .top .brand { font-size: 1.4rem; }
+  /* Phone: brand, then who/language centered under it, then the menu grid. */
+  .nav-account { order: 2; flex: 1 1 100%; justify-content: center; gap: 0.25rem 0.6rem; }
+  .nav-main { order: 3; flex: 1 1 100%; }
   h1 { font-size: 1.2rem; }
 
   .panel, .scanner {
