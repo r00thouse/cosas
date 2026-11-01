@@ -121,7 +121,7 @@ test("health and headers", async () => {
   // manifest-src/worker-src the PWA (§8.10).
   assert.equal(
     r.headers.get("content-security-policy"),
-    "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; media-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+    "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data: blob:; connect-src 'self' blob:; manifest-src 'self'; worker-src 'self'; media-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
   );
   assert.equal(r.headers.get("referrer-policy"), "no-referrer");
   assert.equal(r.headers.get("x-frame-options"), "DENY");
@@ -377,7 +377,8 @@ test("add by phone: /add scanner page is admin-only and accepts the typed fallba
 test("photos: multipart register, add several, delete one, access control", async () => {
   const c = await login("admin");
   const [code] = codesOf(await c("/codes?n=1"));
-  const token = csrfOf(await c(`/r/${code}`));
+  const page = await c(`/r/${code}`);
+  const token = csrfOf(page);
 
   const B = "----e2eboundary";
   const part = (name, value, filename = null, type = null) =>
@@ -397,6 +398,15 @@ test("photos: multipart register, add several, delete one, access control", asyn
     part("photo", PNG, "label.png", "image/png"),
     Buffer.from(`--${B}--\r\n`),
   ]);
+
+  // The crop step is offered by the page itself: template + Cropper assets (§8.8).
+  const form0 = page.text;
+  assert.match(form0, /<template data-crop-template>/);
+  assert.match(form0, /\/vendor\/cropper\.js\?v=[0-9a-f]{10}/);
+  assert.match(form0, /\/vendor\/cropper\.css\?v=[0-9a-f]{10}/);
+  const cropper = await c(`/vendor/cropper.js`);
+  assert.equal(cropper.status, 200);
+  assert.match(cropper.headers.get("content-type"), /text\/javascript/);
 
   const created = await c(`/r/${code}/register`, {
     method: "POST",

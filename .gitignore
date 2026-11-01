@@ -36,6 +36,7 @@ codes.txt
 # --- Build, deps, logs ----------------------------------------------------------
 # There are no npm dependencies, but never let a stray install get committed.
 node_modules/
+.npm-cache/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

@@ -11,11 +11,28 @@ const SEED_CATEGORIES = [
 ];
 
 /** Everything a template needs to render chrome and links. */
+/** The optional crop step (§8.8): a <template> the browser clones when a photo is
+ *  picked, so the labels stay in the server's i18n table. */
+function cropTemplate(c) {
+  const { t } = c;
+  return html`<template data-crop-template>
+<dialog class="crop">
+<div class="crop-stage"><img data-crop-image alt=""></div>
+<div class="crop-actions">
+<button type="button" data-crop-rotate>${t("crop.rotate")}</button>
+<button type="button" data-crop-whole>${t("crop.whole")}</button>
+<button type="button" class="primary" data-crop-apply>${t("crop.apply")}</button>
+<button type="button" data-crop-cancel>${t("crop.cancel")}</button>
+</div>
+</dialog>
+</template>`;
+}
+
 export function pageCtx(t, lang, session) {
   return { t, lang, session, member: Boolean(session) };
 }
 
-export function layout(c, { title, body, page = "" }) {
+export function layout(c, { title, body, page = "", cropper = false }) {
   const { t, lang, member, admin, session } = c;
   const asset = c.asset || ((p) => p);
   return html`<!doctype html>
@@ -27,6 +44,7 @@ export function layout(c, { title, body, page = "" }) {
 <meta name="theme-color" content="#141516" media="(prefers-color-scheme: dark)">
 <title>${title} — ${t("app.title")}</title>
 <link rel="stylesheet" href="${asset("/static/app.css")}">
+${cropper ? raw(`<link rel="stylesheet" href="${asset("/vendor/cropper.css")}">`) : raw("")}
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="${asset("/static/icon-192.png")}" sizes="192x192">
 <link rel="apple-touch-icon" href="${asset("/static/icon-180.png")}">
@@ -55,6 +73,7 @@ ${body}
 </main>
 <footer>${t("app.title")} · ${t("footer.made_by")}</footer>
 </div>
+${cropper ? raw(`<script src="${asset("/vendor/cropper.js")}" defer></script>`) : raw("")}
 <script src="${asset("/static/app.js")}" defer></script>
 </body>
 </html>`;
@@ -216,6 +235,7 @@ ${stickerPanel(c, code)}`;
   return layout(c, {
     title: item.name || prettyCode(code),
     page: "item",
+    cropper: Boolean(c.admin),
     body: html`${publicPart}${memberPart}`,
   });
 }
@@ -259,11 +279,12 @@ ${csrfField(c)}
 <form method="post" action="/r/${code.toLowerCase()}/photo" enctype="multipart/form-data">
 ${csrfField(c)}
 <label for="photo-file">${photos.length ? t("photo.add_more") : t("photo.add")}</label>
-<input id="photo-file" name="photo" type="file" accept="image/jpeg,image/png,image/webp">
-<img class="photo-preview" data-photo-preview alt="" hidden>
+<input id="photo-file" name="photo" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+<div class="photo-preview-row" data-photo-previews></div>
 <p class="hint">${t("photo.hint")}</p>
 <button class="primary" type="submit">${t("photo.upload")}</button>
 </form>
+${cropTemplate(c)}
 </section>`;
 }
 
@@ -307,7 +328,8 @@ ${mode === "register"
   ? html`<label for="photo">${t("item.photo")}${err("photo")}</label>
 <input id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" multiple>
 <div class="photo-preview-row" data-photo-previews></div>
-<p class="hint">${t("photo.hint")}</p>`
+<p class="hint">${t("photo.hint")}</p>
+${cropTemplate(c)}`
   : raw("")}
 <label for="name">${t("item.name")} *${err("name")}</label>
 <input id="name" name="name" required maxlength="200" value="${v.name || ""}" placeholder="${t("form.name_placeholder")}">
@@ -354,6 +376,7 @@ export function registerPage(c, { code, values, errors, categories, locations })
   return layout(c, {
     title: t("scan.claim_cta"),
     page: "register",
+    cropper: true,
     body: html`<h1>${t("scan.claim_cta")}</h1>
 <p class="readonly">${prettyCode(code)}</p>
 <form method="post" action="/r/${code.toLowerCase()}/register" enctype="multipart/form-data">

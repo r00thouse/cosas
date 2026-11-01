@@ -94,6 +94,10 @@ export const STRINGS = {
   "photo.delete": { en: "Delete photo", es: "Borrar foto" },
   "photo.add": { en: "Take or choose a photo", es: "Tomar o elegir una foto" },
   "photo.upload": { en: "Upload", es: "Subir" },
+  "crop.rotate": { en: "Rotate", es: "Girar" },
+  "crop.whole": { en: "Use whole photo", es: "Usar foto completa" },
+  "crop.apply": { en: "Crop", es: "Recortar" },
+  "crop.cancel": { en: "Cancel", es: "Cancelar" },
   "photo.hint": {
     en: "Up to 8 photos. JPEG, PNG or WebP, 8 MB each; a phone sends a smaller copy.",
     es: "Hasta 8 fotos. JPEG, PNG o WebP, 8 MB cada una; un teléfono envía una copia más chica.",

@@ -47,7 +47,7 @@ so that an implementer can build it without making design decisions of their own
 | Rule | Value |
 |---|---|
 | Runtime | Node.js ≥ 24 (uses built-in `node:sqlite`) |
-| Dependencies | **Two**, both for QR only: `qrcode-generator` (encode) and `jsqr` (decode from camera frames). Pinned in `package-lock.json`. No framework, no bundler, no transpile step, no dev-dependency toolchain. |
+| Dependencies | **Three** browser-side components, nothing else: `qrcode-generator` (render stickers), `jsqr` (read them from the camera), `cropperjs` (the optional crop step, §8.8). All three are vendored from `node_modules/` and served as plain `<script>`/`<link>` for a page under `/vendor/`; pinned in `package-lock.json`. No framework, no bundler, no transpile step, no dev-dependency toolchain. |
 | Source layout | Flat files in the repo root: `server.js`, `oidc.js`, `code.js`, `store.js`, `i18n.js`, `html.js`; plus `db/migrations/`, `public/`, `tools/`. No bundler, no transpile step. See §13 for build order. |
 | DB | Single SQLite file, `DB_PATH`, synchronous access via `DatabaseSync`. |
 | Concurrency | Exactly one process. No horizontal scaling, never. |
@@ -212,15 +212,17 @@ csrf = base64url( HMAC-SHA256(SESSION_SECRET, "csrf:" + cookie_signature) )[0:22
 X-Content-Type-Options: nosniff
 X-Frame-Options: DENY
 Referrer-Policy: no-referrer
-Content-Security-Policy: default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; media-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'
-Cache-Control: no-store          (all HTML; on static assets use max-age=3600)
+Content-Security-Policy: default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data: blob:; connect-src 'self' blob:; manifest-src 'self'; worker-src 'self'; media-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'
+Cache-Control: no-store          (all HTML; on static assets use max-age=3600,
+                                  or max-age=31536000, immutable when ?v= matches — §8.11)
 ```
 
 The extra directives beyond the original allowlist are load-bearing for §8.9/§8.10:
-`connect-src 'self'` lets the qty `fetch()` call the app, `media-src 'self' blob:`
-allows the camera stream, `img-src … blob:` lets `app.js` load the picked file into an
-`<img>` before it downscales it to `photo_data`, and `manifest-src` / `worker-src` let
-the PWA manifest and the service worker load.
+`connect-src 'self' blob:` lets the qty `fetch()` call the app — and lets Cropper.js
+read the picked file's own blob to honour EXIF orientation (§8.8) — `media-src 'self'
+blob:` allows the camera stream, `img-src … blob:` lets `app.js` load the picked file
+into an `<img>` before it downscales it to `photo_data`, and `manifest-src` /
+`worker-src` let the PWA manifest and the service worker load.
 
 CSP forbids inline `<script>` and inline `style=` attributes. This is deliberate:
 it keeps `public/app.js` and `app.css` honest and keeps templates free of
@@ -863,6 +865,18 @@ so the panel stays a grid and the export stays small, not for storage reasons.
   2. `photo_data` in the ordinary form body, a `data:image/…;base64,…` URL produced
      by `public/app.js` after it redraws the picked file at 1200 px / JPEG q0.75.
      This is the phone path: a 4 MB camera shot leaves as ~150 KB.
+- **Crop, optionally.** The moment a photo is picked, `app.js` offers a crop step
+  (Cropper.js: `/vendor/cropper.js` + `/vendor/cropper.css`, loaded only on pages
+  that have a photo input — the register form and the item panel). The dialog is a
+  native `<dialog>` in the top layer, so the phone gets a modal surface plus
+  `Escape` and the back gesture for free; its labels come from a
+  `<template data-crop-template>` rendered by `views.js`, which keeps them in the
+  translation table. Buttons: **Rotate**, **Use whole photo**, **Crop**, **Cancel**.
+  Crop yields `getCroppedCanvas({maxWidth: 1600})` → `toDataURL("image/jpeg", 0.82)`;
+  "whole" falls through to the ordinary downscale path; Cancel skips that file.
+  Several picked files queue one dialog each. Without Cropper.js, or without
+  `<dialog>`, no dialog appears and every photo takes the old path, so the crop step
+  is pure enhancement (`connect-src` must allow `blob:` for Cropper's EXIF read).
   Several files may be picked at once (`multiple`), and picking again adds more:
   each file becomes its own `photo_data` field, the file input is cleared (`value = ""`)
   so the originals never travel next to their downscaled copies, and a thumbnail is
@@ -1010,6 +1024,7 @@ add.continue, add.https_hint
 item.name, item.category, item.model, item.serial, item.location, item.status,
 item.held_by, item.qty, item.notes, item.created, item.updated, item.photo
 photo.none, photo.add, photo.add_more, photo.delete, photo.upload, photo.hint
+crop.rotate, crop.whole, crop.apply, crop.cancel
 item.status.available, item.status.in_use, item.status.broken, item.status.missing
 form.field_required, form.register, form.save, form.cancel, form.notes_placeholder,
 form.qty_mode, form.qty_mode.count, form.qty_mode.bin
@@ -1115,6 +1130,8 @@ and the request id.
 /healthz                  liveness
 /static/*                 app.css, app.js, scan.js, icons
 /vendor/jsQR.js           browser build of the jsqr dependency
+/vendor/cropper.js        browser build of the cropperjs dependency
+/vendor/cropper.css       cropperjs stylesheet
 ```
 
 Reserved (404): `/i`, `/api`, `/admin`, anything else not listed.
@@ -1450,6 +1467,13 @@ Environment: `./dev.sh` (starts the app with `node --watch` and the mock IdP on
 30. **Category autocomplete**: typing `mon` into Category on the register form shows
     `monitor` in a tappable list; `ArrowDown` + `Enter` accepts it, `Escape` closes
     it, and typing a brand-new name still creates that category.
+31. **Crop (optional)**: picking a photo opens a dialog over the form; drag its
+    corners and press `[Crop]` — the preview under the input is the cropped
+    rectangle, and the item shows exactly that after saving. `[Use whole photo]`
+    keeps the untouched frame, `[Cancel]` skips the file, `[Rotate]` turns it a
+    quarter turn. Escape closes with the same effect as Cancel. On a phone the same
+    dialog must be reachable with a thumb, with the page dimmed and not scrollable
+    behind it.
 
 ---
 
@@ -1479,6 +1503,9 @@ app bootable.
 8. `/export.csv`.
 8b. `assets.js` + the versioned asset URLs, the `/sw.js` and manifest placeholders
    (§8.11). Do this before the PWA step so the worker template already has a version.
+8c. The optional crop step (§8.8): `/vendor/cropper.js` + `.css`, the
+   `<template data-crop-template>`, and the dialog in `app.js`. Build it last: the
+   register form must work without it.
 9. `tools/mock-idp/` (§11), `Dockerfile`, `.dockerignore`, `compose.yaml`,
    `.env.example`, `dev.sh` (generates `.dev/env`).
 10. Walk §12 top to bottom and fix what fails. Do not "improve" anything outside
@@ -1500,6 +1527,7 @@ app bootable.
 | Q19 | One search box + three fixed filters | no FTS, no sort UI |
 | Q20 | Anonymous sees public subset only | found-device UX without leaking serials/held_by |
 | Q21/Q23 | Hand-rolled migration runner, not a library | keeps deps at zero; native build avoided |
+| Q34 | Optional crop with Cropper.js, offered after every pick | a phone photo is mostly desk; cropping is the cheapest way to keep the image useful, and a library beats hand-rolled canvas math. It stays optional so a broken vendor file cannot block registering |
 | Q33 | Asset URLs carry a content hash; the worker cache name carries it too | a deploy must reach a browser that has the old CSS and an installed PWA, without asking anyone to hard-refresh |
 | Q22/Q27 | CSV export in; no import/camera/uploads/email | cheap, read-only, operator-friendly |
 | Q24/Q30 | Plain HTTP behind existing nginx; one scan path | operator already has TLS; fewer routes |

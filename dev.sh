@@ -333,6 +333,9 @@ cmd_test() {
   ver="$(curl -s "$APP_URL/" | grep -o 'app\.css?v=[0-9a-f]\{10\}' | head -1 | cut -d= -f2)"
   check "12.28 /static/app.css?v=<hash>" 200 "$(code "$APP_URL/static/app.css?v=$ver")"
   check "12.28 the worker carries the same version" 1 "$(curl -s "$APP_URL/sw.js" | grep -c "const VERSION = \"$ver\"")"
+  check "12.28 /vendor/jsQR.js?v=<hash>" 200 "$(code "$APP_URL/vendor/jsQR.js?v=$ver")"
+  check "12.28 /vendor/cropper.js?v=<hash>" 200 "$(code "$APP_URL/vendor/cropper.js?v=$ver")"
+  check "12.28 /vendor/cropper.css?v=<hash>" 200 "$(code "$APP_URL/vendor/cropper.css?v=$ver")"
   check "12.23 /add without a session → 403" 403 "$(code "$APP_URL/add")"
   check "12.23 /add with a session → 200" 200 "$(code -b "$jar" "$APP_URL/add")"
   if [[ -n $first ]]; then

@@ -171,6 +171,26 @@ dl.item dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Photos picked on the register form, before they are uploaded (§8.8). */
 .photo-preview-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr)); gap: 0.5rem; margin-top: 0.5rem; }
 .photo-preview-row img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
+/* §8.8: the optional crop step. A <dialog> so the phone gets a modal surface and
+   Escape/back-gesture handling for free; the stage is sized in viewport units. */
+dialog.crop {
+  border: 0;
+  padding: 0;
+  width: min(44rem, 100vw);
+  max-width: 100vw;
+  max-height: 100dvh;
+  margin: auto;
+  background: var(--bg);
+  color: var(--fg);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+dialog.crop::backdrop { background: rgb(0 0 0 / 62%); }
+.crop-stage { height: min(58vh, 26rem); background: #101112; }
+.crop-stage img { display: block; max-width: 100%; }
+.crop-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem; }
+.crop-actions button { flex: 1 1 8rem; }
+
 /* §8.2: the suggestion list of a combo box (category, location). */
 .combo { position: relative; }
 .suggest {

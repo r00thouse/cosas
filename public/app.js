@@ -61,6 +61,9 @@
   // lets the operator take one photo, then another, without ever posting the originals.
   // Without canvas the input stays and the server takes what the browser sends.
   var MAX_EDGE = 1200;
+  // Cropped output is allowed to be a little larger than a downscaled upload: a
+  // crop keeps pixels the operator chose, and phones are the only way to see them.
+  var CROP_EDGE = 1600;
   var MAX_PHOTOS = 8;
   var scaled = 0;
 
@@ -118,6 +121,117 @@
     reader.readAsDataURL(file);
   }
 
+  // §8.8, optional crop step. The <dialog> markup is a server-rendered <template>
+  // (so its labels are translated like everything else); Cropper.js gives the
+  // touch-friendly box. No Cropper, no <dialog> or no blob URLs -> the photo is used
+  // whole, exactly as before, so this is a pure enhancement.
+  var crop = { dialog: null, api: null, settle: null, url: null };
+
+  function cropReady() {
+    return Boolean(window.Cropper && window.HTMLDialogElement && window.URL && URL.createObjectURL);
+  }
+
+  function buildCropDialog() {
+    if (crop.dialog) return crop.dialog;
+    var tpl = document.querySelector("template[data-crop-template]");
+    if (!tpl || !tpl.content || !tpl.content.firstElementChild) return null;
+    crop.dialog = tpl.content.firstElementChild.cloneNode(true);
+    document.body.appendChild(crop.dialog);
+    var img = crop.dialog.querySelector("[data-crop-image]");
+    crop.dialog.querySelector("[data-crop-rotate]").addEventListener("click", function () {
+      if (crop.api) crop.api.rotate(90);
+    });
+    crop.dialog.querySelector("[data-crop-whole]").addEventListener("click", function () {
+      finishCrop(null);
+    });
+    crop.dialog.querySelector("[data-crop-cancel]").addEventListener("click", function () {
+      finishCrop(false);
+    });
+    crop.dialog.querySelector("[data-crop-apply]").addEventListener("click", function () {
+      if (!crop.api) return finishCrop(null);
+      var canvas;
+      try {
+        canvas = crop.api.getCroppedCanvas({
+          maxWidth: CROP_EDGE,
+          maxHeight: CROP_EDGE,
+          imageSmoothingQuality: "high",
+        });
+      } catch (e) {
+        canvas = null;
+      }
+      var data = null;
+      if (canvas) {
+        try {
+          data = canvas.toDataURL("image/jpeg", 0.82);
+        } catch (e) {
+          data = null;
+        }
+      }
+      finishCrop(data && data.length > 100 ? data : null);
+    });
+    // Escape / a swipe back closes the dialog: treat it as "cancel", like the button.
+    crop.dialog.addEventListener("cancel", function (ev) {
+      ev.preventDefault();
+      finishCrop(false);
+    });
+    crop.dialog.addEventListener("close", function () {
+      if (crop.api) {
+        try {
+          crop.api.destroy();
+        } catch (e) {
+          /* ignore */
+        }
+        crop.api = null;
+      }
+      img.removeAttribute("src");
+    });
+    return crop.dialog;
+  }
+
+  function finishCrop(data) {
+    var settle = crop.settle;
+    crop.settle = null;
+    if (crop.url) {
+      URL.revokeObjectURL(crop.url);
+      crop.url = null;
+    }
+    if (crop.dialog && crop.dialog.open) crop.dialog.close();
+    if (settle) settle(data);
+  }
+
+  /** Ask the operator whether to crop; resolves a data URL, null (use whole) or false (skip). */
+  function askCrop(file) {
+    return new Promise(function (resolve) {
+      if (!cropReady() || !buildCropDialog()) return resolve(null);
+      var img = crop.dialog.querySelector("[data-crop-image]");
+      crop.settle = resolve;
+      crop.url = URL.createObjectURL(file);
+      img.onload = function () {
+        try {
+          crop.api = new window.Cropper(img, {
+            viewMode: 1,
+            dragMode: "move",
+            autoCropArea: 0.9,
+            checkOrientation: true,
+            responsive: true,
+            background: false,
+            guides: false,
+            toggleDragModeOnDblclick: false,
+            movable: true,
+            zoomable: true,
+          });
+        } catch (e) {
+          finishCrop(null);
+        }
+      };
+      img.onerror = function () {
+        finishCrop(null);
+      };
+      img.src = crop.url;
+      crop.dialog.showModal();
+    });
+  }
+
   function wirePhoto() {
     var inputs = document.querySelectorAll('input[type="file"][name="photo"]');
     for (var i = 0; i < inputs.length; i++) attach(inputs[i]);
@@ -133,44 +247,46 @@
         // A non-image is the server's call to refuse, with a message: post it as-is.
         if (images.length !== picked.length) return;
         var previews = form.querySelector("[data-photo-previews]");
-        var single = form.querySelector("[data-photo-preview]");
         var batch = images.slice(0, Math.max(0, MAX_PHOTOS - scaled));
-        if (!batch.length) return;
-        var next = batch.length;
-        var replaced = false;
-        batch.forEach(function (file) {
-          var small = file.size < 150 * 1024;
-          var run = small ? readRaw : downscale;
-          run(file, function (data) {
-            if (!data && !small) {
-              // canvas refused (unusual format): fall back to the original bytes.
-              return readRaw(file, function (raw) {
-                finish(raw);
-              });
-            }
-            finish(data);
-          });
-        });
         // Clearing the input matters: the picked originals must never travel with
         // the form next to their downscaled copies. The input stays, so more photos
         // can be added by picking again.
-        function reset() {
-          if (replaced) return;
-          replaced = true;
-          try {
-            node.value = "";
-          } catch (e) {
-            /* older browsers: the form still posts the original, which is valid too */
-          }
+        try {
+          node.value = "";
+        } catch (e) {
+          return;
         }
-        function finish(data) {
-          if (data) {
-            addHidden(form, data);
-            scaled++;
-            if (previews) showPreview(previews, data);
-            else if (single) { single.src = data; single.hidden = false; }
-          }
-          if (--next === 0) reset();
+        if (!batch.length) return;
+        var chain = Promise.resolve();
+        batch.forEach(function (file) {
+          chain = chain.then(function () {
+            return one(file);
+          });
+        });
+        // One photo at a time: the dialog is a single surface, so a multi-select
+        // queues the crops instead of stacking them.
+        function one(file) {
+          return askCrop(file).then(function (data) {
+            if (data === false) return;
+            if (data) return add(data);
+            return new Promise(function (res) {
+              downscale(file, function (small) {
+                if (small) {
+                  add(small);
+                  return res();
+                }
+                readRaw(file, function (raw) {
+                  if (raw) add(raw);
+                  res();
+                });
+              });
+            });
+          });
+        }
+        function add(data) {
+          addHidden(form, data);
+          scaled++;
+          if (previews) showPreview(previews, data);
         }
       });
     }

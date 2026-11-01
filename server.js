@@ -27,7 +27,11 @@ const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(HERE, "public");
 
 // §8.11: content hashes for every browser asset, computed once at boot.
-const assets = createAssets(PUBLIC_DIR, { "jsQR.js": join(HERE, "node_modules/jsqr/dist/jsQR.js") });
+const assets = createAssets(PUBLIC_DIR, {
+  "jsQR.js": join(HERE, "node_modules/jsqr/dist/jsQR.js"),
+  "cropper.js": join(HERE, "node_modules/cropperjs/dist/cropper.min.js"),
+  "cropper.css": join(HERE, "node_modules/cropperjs/dist/cropper.min.css"),
+});
 // What the service worker precaches. The manifest is versioned through the same
 // global hash, so the worker and the manifest always agree on icon URLs.
 const SW_ASSETS = ["/static/app.css", "/static/app.js", "/static/scan.js", "/vendor/jsQR.js", "/static/icon-192.png", "/static/icon-512.png"];
@@ -58,6 +62,9 @@ const ROOT_FILES = {
   "/manifest.webmanifest": { file: join(PUBLIC_DIR, "manifest.webmanifest"), type: "application/manifest+json", cache: "no-cache" },
   "/sw.js": { file: join(PUBLIC_DIR, "sw.js"), type: "text/javascript; charset=utf-8", cache: "no-cache" },
   "/vendor/jsQR.js": { file: join(HERE, "node_modules/jsqr/dist/jsQR.js"), type: "text/javascript; charset=utf-8", cache: "public, max-age=86400" },
+  // Cropper.js (MIT), the only other front-end component: the optional crop step (§8.8).
+  "/vendor/cropper.js": { file: join(HERE, "node_modules/cropperjs/dist/cropper.min.js"), type: "text/javascript; charset=utf-8", cache: "public, max-age=86400" },
+  "/vendor/cropper.css": { file: join(HERE, "node_modules/cropperjs/dist/cropper.min.css"), type: "text/css; charset=utf-8", cache: "public, max-age=86400" },
 };
 
 /** `meta` rides along for the error page (e.g. the item holding a taken code). */
@@ -743,6 +750,8 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     ["GET", "/manifest.webmanifest", (req, res, s, url) => handleRootFile(req, res, url.pathname), "anon"],
     ["GET", "/sw.js", (req, res, s, url) => handleRootFile(req, res, url.pathname), "anon"],
     ["GET", "/vendor/jsQR.js", (req, res, s, url) => handleRootFile(req, res, url.pathname), "anon"],
+    ["GET", "/vendor/cropper.js", (req, res, s, url) => handleRootFile(req, res, url.pathname), "anon"],
+    ["GET", "/vendor/cropper.css", (req, res, s, url) => handleRootFile(req, res, url.pathname), "anon"],
     ["GET", "/export.csv", (req, res) => handleExport(req, res), "member"],
     ["GET", "/codes", (req, res, s, url) => handleCodes(req, res, s, url), "member"],
     ["GET", "/codes/svg", (req, res, s, url) => handleCodesSvg(req, res, s, url), "member"],
@@ -783,7 +792,7 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
   // manifest-src/worker-src for the PWA (§8.10), media-src for the camera stream.
   const SECURITY_HEADERS = {
     "content-security-policy":
-      "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; media-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+      "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data: blob:; connect-src 'self' blob:; manifest-src 'self'; worker-src 'self'; media-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
     "x-content-type-options": "nosniff",
     "x-frame-options": "DENY",
     "referrer-policy": "no-referrer",

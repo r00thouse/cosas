@@ -179,6 +179,13 @@ bug report can just say "12.7 fails".
 19. **Several photos** (12.29) and **category autocomplete** (12.30) — on the
     register form pick two images before submitting (both thumbs appear), and type
     `mon` into Category (the `monitor` suggestion is tappable; `Enter` accepts).
+20. **Crop** (12.31) — pick a photo on the register form: a dialog covers the page
+    (dimmed, the form behind it does not scroll). Drag a corner of the box, press
+    `[Crop]`, and the preview under the file input is the cropped rectangle;
+    `[Use whole photo]` keeps the frame untouched, `[Cancel]` adds nothing,
+    `[Rotate]` turns it. Escape behaves like Cancel. Do it once in the phone
+    emulation of devtools — the corner handles must be big enough to hit with a
+    thumb. Without JavaScript there is no dialog and the file posts as-is.
 
 ### 4.3 Layer 3 — the production shape
 
