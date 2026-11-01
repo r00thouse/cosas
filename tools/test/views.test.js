@@ -21,6 +21,8 @@ test("photo fields offer the rear camera and the file picker, both as name=photo
     assert.equal(inputs.filter((i) => /capture="environment"/.test(i)).length, 1, "one opens the camera");
     assert.match(html, /Tomar foto/);
     assert.match(html, /Elegir archivos/);
+    assert.match(html, /data-photo-previews data-msg-remove="Quitar"/, "picked photos can be taken back out");
+    assert.match(html, /data-camera-shots data-msg-remove="Quitar"/, "so can camera shots");
     assert.match(html, /<template data-camera-template[\s\S]*data-camera-shutter[\s\S]*Sacar foto[\s\S]*Listo/, "in-page camera dialog");
   }
   assert.match(String(registerPage(ctx("en"), { code: "AAAA000000000001" })), /Take photo/);

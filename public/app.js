@@ -99,13 +99,63 @@
     hidden.name = "photo_data";
     hidden.value = data;
     form.appendChild(hidden);
+    return hidden;
   }
 
-  function showPreview(container, data) {
+  /**
+   * One photo joins the form: its hidden `photo_data` field plus a tile in the form's
+   * preview row (and in any `extra` box, e.g. the camera's strip). Every tile has a
+   * "Remove" button that takes the photo back out everywhere and frees its slot in
+   * MAX_PHOTOS, so a bad shot is one tap to undo. Nothing is on the server yet, so
+   * removing needs no request and no confirmation.
+   */
+  function attachPhoto(form, data, extra) {
+    var entry = { hidden: addHidden(form, data), tiles: [] };
+    scaled++;
+    var boxes = [form.querySelector("[data-photo-previews]")].concat(extra || []);
+    boxes.forEach(function (box) {
+      if (box) entry.tiles.push(photoTile(box, data, entry));
+    });
+    photosChanged();
+    return entry;
+  }
+
+  function photoTile(box, data, entry) {
+    var tile = document.createElement("div");
+    tile.className = "photo-tile";
     var img = document.createElement("img");
     img.src = data;
     img.alt = "";
-    container.appendChild(img);
+    tile.appendChild(img);
+    var label = box.getAttribute("data-msg-remove");
+    if (label) {
+      var remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "photo-remove";
+      remove.textContent = label;
+      remove.addEventListener("click", function () {
+        detachPhoto(entry);
+      });
+      tile.appendChild(remove);
+    }
+    box.appendChild(tile);
+    return tile;
+  }
+
+  function detachPhoto(entry) {
+    if (!entry.hidden.parentNode) return;
+    entry.hidden.remove();
+    entry.tiles.forEach(function (tile) {
+      tile.remove();
+    });
+    scaled = Math.max(0, scaled - 1);
+    photosChanged();
+  }
+
+  // Lets an open camera dialog keep its "n of 8" counter right when a photo is
+  // removed from either place.
+  function photosChanged() {
+    document.dispatchEvent(new CustomEvent("cosas:photos"));
   }
 
   /** Read a file as a data URL, for a small image or when canvas is unavailable. */
@@ -246,7 +296,6 @@
         });
         // A non-image is the server's call to refuse, with a message: post it as-is.
         if (images.length !== picked.length) return;
-        var previews = form.querySelector("[data-photo-previews]");
         var batch = images.slice(0, Math.max(0, MAX_PHOTOS - scaled));
         // Clearing the input matters: the picked originals must never travel with
         // the form next to their downscaled copies. The input stays, so more photos
@@ -284,9 +333,7 @@
           });
         }
         function add(data) {
-          addHidden(form, data);
-          scaled++;
-          if (previews) showPreview(previews, data);
+          attachPhoto(form, data);
         }
       });
     }
@@ -327,15 +374,21 @@
       var shots = dialog.querySelector("[data-camera-shots]");
       var shutter = dialog.querySelector("[data-camera-shutter]");
       var flash = dialog.querySelector("[data-camera-flash]");
-      var previews = form.querySelector("[data-photo-previews]");
       var stream = null;
 
       function count() {
         status.textContent = msg("count", { n: scaled, max: MAX_PHOTOS });
-        shutter.disabled = !stream || scaled >= MAX_PHOTOS;
+        // Only once a frame is there: before loadedmetadata videoWidth is 0 and a tap
+        // would silently capture nothing.
+        shutter.disabled = !stream || !video.videoWidth || scaled >= MAX_PHOTOS;
       }
 
+      document.addEventListener("cosas:photos", count);
+      video.addEventListener("loadedmetadata", count);
+      video.addEventListener("resize", count);
+
       function close() {
+        document.removeEventListener("cosas:photos", count);
         if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
         stream = null;
         if (dialog.open) dialog.close();
@@ -356,10 +409,7 @@
           data = null;
         }
         if (!data || data.length < 100) return;
-        addHidden(form, data);
-        scaled++;
-        if (previews) showPreview(previews, data);
-        showPreview(shots, data);
+        attachPhoto(form, data, [shots]);
         shots.scrollLeft = shots.scrollWidth;
         flash.classList.remove("on");
         void flash.offsetWidth; // restart the animation

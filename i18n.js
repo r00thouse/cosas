@@ -96,6 +96,7 @@ export const STRINGS = {
   "photo.upload": { en: "Upload", es: "Subir" },
   "photo.take": { en: "Take photo", es: "Tomar foto" },
   "photo.choose": { en: "Choose files", es: "Elegir archivos" },
+  "photo.remove": { en: "Remove", es: "Quitar" },
   "camera.shutter": { en: "Take picture", es: "Sacar foto" },
   "camera.done": { en: "Done", es: "Listo" },
   "camera.count": { en: "{n} of {max} photos", es: "{n} de {max} fotos" },

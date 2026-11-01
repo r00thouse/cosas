@@ -288,7 +288,7 @@ ${csrfField(c)}
 ${csrfField(c)}
 <label for="photo-file">${photos.length ? t("photo.add_more") : t("photo.add")}</label>
 ${photoPickers(c, "photo-file")}
-<div class="photo-preview-row" data-photo-previews></div>
+<div class="photo-preview-row" data-photo-previews data-msg-remove="${t("photo.remove")}"></div>
 <p class="hint">${t("photo.hint")}</p>
 <button class="primary" type="submit">${t("photo.upload")}</button>
 </form>
@@ -320,7 +320,7 @@ function cameraTemplate(c) {
 <dialog class="camera">
 <div class="camera-stage"><video data-camera-video playsinline muted autoplay></video><div class="camera-flash" data-camera-flash></div></div>
 <p class="camera-status" data-camera-status aria-live="polite"></p>
-<div class="camera-shots" data-camera-shots></div>
+<div class="camera-shots" data-camera-shots data-msg-remove="${t("photo.remove")}"></div>
 <div class="camera-actions">
 <button type="button" class="primary camera-shutter" data-camera-shutter disabled>${t("camera.shutter")}</button>
 <button type="button" data-camera-done>${t("camera.done")}</button>
@@ -368,7 +368,7 @@ ${datalist}
 ${mode === "register"
   ? html`<label for="photo">${t("item.photo")}${err("photo")}</label>
 ${photoPickers(c, "photo")}
-<div class="photo-preview-row" data-photo-previews></div>
+<div class="photo-preview-row" data-photo-previews data-msg-remove="${t("photo.remove")}"></div>
 <p class="hint">${t("photo.hint")}</p>
 ${cropTemplate(c)}`
   : raw("")}
