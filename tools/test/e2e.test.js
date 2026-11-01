@@ -24,11 +24,15 @@ let dir;
 let app;
 let idp;
 
-/** A fetch with a cookie jar. */
+/** A fetch with a cookie jar. Each client gets its own forwarded IP so tests do
+ *  not share the app's per-IP rate-limit bucket (§10.3); the run would otherwise
+ *  trip the limiter from sheer repetition, not from a bug. */
+let clientSeq = 0;
 function client() {
   const jar = new Map();
+  const ip = `203.0.113.${(++clientSeq % 250) + 1}`;
   return async function call(path, init = {}, extraCookie = null) {
-    const headers = { ...(init.headers || {}) };
+    const headers = { "x-forwarded-for": ip, ...(init.headers || {}) };
     const cookie = [extraCookie || "", ...[...jar].map(([k, v]) => `${k}=${v}`)].filter(Boolean).join("; ");
     if (cookie) headers.cookie = cookie;
     const res = await fetch(ORIGIN + path, { ...init, headers, redirect: "manual" });
@@ -95,6 +99,7 @@ before(async () => {
       OIDC_DISCOVERY_URL: `http://127.0.0.1:${IDP}/oauth2/openid/cosas/.well-known/openid-configuration`,
       OIDC_CLIENT_ID: "cosas",
       OIDC_CLIENT_SECRET: "dev-client-secret",
+      TRUST_PROXY: "1",
       LOG_LEVEL: "error",
     },
     stdio: ["ignore", "pipe", "inherit"],
@@ -238,8 +243,9 @@ test("print sheet, register through the sticker URL, then edit/qty/status", asyn
     form({ _csrf: token, name: "Monitor LG 27", category: "monitor", qty: "1", notes: "nota editada" }),
   );
   assert.equal(edited.status, 302);
-  assert.match((await c(`/r/${code}`)).text, /nota editada/, "the edit kept the new notes");
-  assert.match((await c(`/r/${code}`)).text, /Monitor LG 27/);
+  const afterEdit = await c(`/r/${code}`);
+  assert.match(afterEdit.text, /nota editada/, "the edit kept the new notes");
+  assert.match(afterEdit.text, /Monitor LG 27/);
 
   const qty = await c(`/r/${code}/qty`, { ...form({ _csrf: token, delta: "1" }), headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" } });
   assert.equal(qty.status, 200);
@@ -252,6 +258,21 @@ test("print sheet, register through the sticker URL, then edit/qty/status", asyn
   // No CSRF token: rejected.
   const noCsrf = await c(`/r/${code}/status`, form({ status: "available" }));
   assert.equal(noCsrf.status, 403);
+
+});
+
+test("name, category and location share one suggestion mechanism", async () => {
+  const c = await login("admin");
+  // The edit form is the same formFields() as the register form, and it is the
+  // cheapest way to see the datalists without spending an extra sticker scan.
+  const [, code] = codesOf(await c("/codes?n=2"));
+  const page = await c(`/r/${code}?edit=1`);
+  assert.equal(page.status, 200);
+  assert.match(page.text, /<input id="name" name="name" list="names" data-suggest="names"/);
+  const names = (page.text.match(/<datalist id="names">[\s\S]*?<\/datalist>/) || [""])[0];
+  assert.match(names, /<option value="Monitor LG 27">/, "the name just edited is offered");
+  assert.match(page.text, /<datalist id="categories">/, "categories keep their list");
+  assert.match(page.text, /<input id="category" name="category" list="categories" data-suggest="categories"/);
 });
 
 test("export CSV, list filters, language switch", async () => {

@@ -250,11 +250,12 @@ export function createStore(db, { log } = {}) {
   /** Number of non-deleted items matching the same filters as listLive(). */
   const countFiltered = (opts = {}) => listLive({ ...opts, count: true });
 
-  /** Distinct non-empty values for the autocomplete datalists (§8.5). */
-  const distinct = (column) =>
+  /** Distinct non-empty values for the autocomplete datalists (§8.5), live items
+   *  only. `limit` keeps a form from embedding a huge <datalist> (0 = no limit). */
+  const distinct = (column, limit = 0) =>
     db
-      .prepare(`SELECT DISTINCT ${column} AS v FROM items WHERE ${column} <> '' AND deleted_at IS NULL ORDER BY v`)
-      .all()
+      .prepare(`SELECT DISTINCT ${column} AS v FROM items WHERE ${column} <> '' AND deleted_at IS NULL ORDER BY v${limit ? " LIMIT ?" : ""}`)
+      .all(...(limit ? [limit] : []))
       .map((r) => r.v);
   /** Last sequence number ever used, deleted items included (never reuse a seq). */
 

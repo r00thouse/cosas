@@ -362,7 +362,7 @@ export function formFields(c, values, errors, { code, categories, locations, mod
   const err = (k) => (errors && errors[k] ? html` <span class="error">${t(errors[k])}</span>` : raw(""));
   const v = values || {};
   const cats = unique([...SEED_CATEGORIES, ...(categories || [])]);
-  const datalist = html`<datalist id="categories">${cats.map((x) => html`<option value="${x}">`)}</datalist><datalist id="locations">${(locations || []).map((x) => html`<option value="${x}">`)}</datalist>`;
+  const datalist = html`<datalist id="names">${(c.names || []).map((x) => html`<option value="${x}">`)}</datalist><datalist id="categories">${cats.map((x) => html`<option value="${x}">`)}</datalist><datalist id="locations">${(locations || []).map((x) => html`<option value="${x}">`)}</datalist>`;
   return html`
 ${datalist}
 ${mode === "register"
@@ -373,7 +373,7 @@ ${photoPickers(c, "photo")}
 ${cropTemplate(c)}`
   : raw("")}
 <label for="name">${t("item.name")} *${err("name")}</label>
-<input id="name" name="name" required maxlength="200" value="${v.name || ""}" placeholder="${t("form.name_placeholder")}">
+<div class="combo"><input id="name" name="name" list="names" data-suggest="names" autocomplete="off" required maxlength="200" value="${v.name || ""}" placeholder="${t("form.name_placeholder")}"></div>
 <label for="category">${t("item.category")} *${err("category")}</label>
 <div class="combo"><input id="category" name="category" list="categories" data-suggest="categories" autocomplete="off" required maxlength="100" value="${v.category || ""}" placeholder="${t("form.category_placeholder")}"></div>
 <label for="model">${t("item.model")}</label>

@@ -119,6 +119,9 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
       asset: (path) => assets.url(path),
       categories: store.distinct("category"),
       locations: store.distinct("location"),
+      // Names repeat a lot in an inventory ("Monitor LG 24" x 12); 500 is far more
+      // than a <datalist> needs and keeps the register form's HTML small (§8.5).
+      names: store.distinct("name", 500),
       ...extra,
     };
   }

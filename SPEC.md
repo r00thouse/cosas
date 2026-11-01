@@ -782,8 +782,13 @@ Always `deleted_at IS NULL`. Case-insensitive via `LIKE … ESCAPE '\'` with `%`
   → rendered as `<datalist id="categories">`. Never auto-created.
 - `location`: `SELECT DISTINCT location FROM items WHERE location <> '' AND deleted_at IS NULL`.
   Not pre-seeded; free text is expected.
+- `name`: `SELECT DISTINCT name FROM items WHERE name <> '' AND deleted_at IS NULL`
+  capped at the first **500** names alphabetically (`store.distinct("name", 500)`).
+  A hacklab buys the same monitor twelve times, so the list is genuinely useful; the
+  cap only stops a form from embedding a huge `<datalist>`. Free text is still fine —
+  a new name simply joins the list next time.
 
-Both fields render twice, on purpose:
+All three fields render twice, on purpose:
 
 1. a `<datalist>` in the markup (kept for browsers without JS and for the native
    picker), and
