@@ -16,7 +16,7 @@ export function pageCtx(t, lang, session) {
 }
 
 export function layout(c, { title, body, page = "" }) {
-  const { t, lang, member } = c;
+  const { t, lang, member, admin, session } = c;
   return html`<!doctype html>
 <html lang="${lang}">
 <head>
@@ -35,11 +35,12 @@ export function layout(c, { title, body, page = "" }) {
 <header class="top">
   <a class="brand" href="/">${t("app.title")}</a>
   <nav>
-    ${member ? html`<a class="nav-add" href="/add">${t("nav.add")}</a>` : raw("")}
+    ${admin ? html`<a class="nav-add" href="/add">${t("nav.add")}</a>` : raw("")}
     <a href="/">${t("nav.home")}</a>
-    ${member ? html`<a href="/codes">${t("nav.print")}</a><a href="/export.csv">${t("nav.export")}</a>` : raw("")}
+    ${admin ? html`<a href="/codes">${t("nav.print")}</a><a href="/export.csv">${t("nav.export")}</a>` : raw("")}
     ${member
-      ? html`<form method="post" action="/logout">${csrfField(c)}<button class="link" type="submit">${t("nav.logout")}</button></form>`
+      ? html`<span class="whoami"><span class="whoami-name">${session.name}</span><span class="badge role-${session.role}" title="${t(`role.${session.role}`)}">${t(`role.${session.role}`)}</span></span>
+    <form method="post" action="/logout">${csrfField(c)}<button class="link" type="submit">${t("nav.logout")}</button></form>`
       : html`<a href="/login">${t("nav.login")}</a>`}
     <span class="lang" aria-label="${t("nav.ui_lang")}">
       ${["en", "es"].map((l) =>
@@ -71,7 +72,7 @@ export function errorPage(c, status, key, extra) {
 // ---------------------------------------------------------------- list (§8.4)
 
 export function listPage(c, { rows, total, page, pages, filters, categories, locations }) {
-  const { t, member } = c;
+  const { t, member, admin } = c;
   const from = rows.length ? (page - 1) * 50 + 1 : 0;
   const to = (page - 1) * 50 + rows.length;
   const opts = (values, selected) =>
@@ -101,7 +102,7 @@ export function listPage(c, { rows, total, page, pages, filters, categories, loc
   ${filters.q || filters.category || filters.status ? html`<a class="button" href="/">${t("list.clean")}</a>` : raw("")}
 </form>
 ${rows.length === 0
-  ? html`<p>${t("list.empty")} ${member ? html`<a href="/codes">${t("list.empty_member")}</a>` : raw("")}</p>`
+  ? html`<p>${t("list.empty")} ${admin ? html`<a href="/codes">${t("list.empty_member")}</a>` : raw("")}</p>`
   : html`<table class="list">
   <thead><tr><th>${t("item.name")}</th><th>${t("item.category")}</th><th>${t("item.status")}</th><th>${t("item.location")}</th><th>${t("item.qty")}</th></tr></thead>
   <tbody>${rows.map(
@@ -119,12 +120,24 @@ ${rows.length === 0
   <span>${t("list.range", { from, to, total })}</span>
   ${page < pages ? html`<a class="button" href="${qs(page + 1)}">${t("list.next")}</a>` : raw("")}
 </div>
-${member ? html`<p class="hint"><a href="/codes">${t("nav.print")}</a></p>` : html`<p class="hint"><a href="/login">${t("nav.login")}</a></p>`}
+${admin ? html`<p class="hint"><a href="/codes">${t("nav.print")}</a></p>` : member ? raw("") : html`<p class="hint"><a href="/login">${t("nav.login")}</a></p>`}
 `;
   return layout(c, { title: t("list.title"), body, page: "list" });
 }
 
 // ------------------------------------------------------- scan: login prompt
+
+/** A signed-in reader scans a sticker nobody claimed yet: nothing to register here. */
+export function readOnlyPrompt(c, { code }) {
+  return layout(c, {
+    title: c.t("scan.readonly_title"),
+    page: "readonly",
+    body: html`<h1>${c.t("scan.readonly_title")}</h1>
+<p class="readonly">${prettyCode(code)}</p>
+<p>${c.t("err.forbidden")}</p>
+<p><a href="/">${c.t("nav.home")}</a></p>`,
+  });
+}
 
 export function loginPrompt(c, code) {
   return layout(c, {
@@ -147,7 +160,7 @@ export const paddedCode = (input) => {
 // ------------------------------------------------- public view / action sheet (§8.3)
 
 export function itemPage(c, { code, item, flash, errors, editing, confirm }) {
-  const { t, member } = c;
+  const { t, admin } = c;
   const publicPart = html`
 <h1>${item.name || item.category || prettyCode(code)}</h1>
 <p class="readonly">${prettyCode(code)}</p>
@@ -160,7 +173,7 @@ export function itemPage(c, { code, item, flash, errors, editing, confirm }) {
     : raw("")}
 </dl>`;
   let memberPart = raw("");
-  if (member) {
+  if (admin) {
     memberPart = html`
 ${photoPanel(c, item, code)}
 <section class="panel">

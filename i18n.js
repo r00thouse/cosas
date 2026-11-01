@@ -17,6 +17,8 @@ export const STRINGS = {
   "nav.print": { en: "Print stickers", es: "Imprimir etiquetas" },
   "nav.login": { en: "Log in", es: "Entrar" },
   "nav.logout": { en: "Log out", es: "Salir" },
+  "role.admin": { en: "admin", es: "admin" },
+  "role.member": { en: "reader", es: "lectura" },
   "nav.ui_lang": { en: "Language", es: "Idioma" },
   "nav.export": { en: "Export CSV", es: "Exportar CSV" },
 
@@ -185,6 +187,7 @@ export const STRINGS = {
   "err.qty_range": { en: "Quantity must be between 0 and 100000.", es: "La cantidad tiene que estar entre 0 y 100000." },
   "err.not_found": { en: "Page not found.", es: "No se encontró la página." },
   "err.range": { en: "Out of range.", es: "Fuera de rango." },
+  "scan.readonly_title": { en: "Sticker not registered", es: "Etiqueta sin registrar" },
   "err.forbidden": { en: "Your account can read but not change the inventory.", es: "Tu cuenta puede leer pero no modificar el inventario." },
   "err.internal": { en: "Something failed on the server. Try again.", es: "Algo falló en el servidor. Inténtalo de nuevo." },
   "err.bad_photo": {

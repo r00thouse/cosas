@@ -96,6 +96,7 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
       lang,
       session,
       member: Boolean(session),
+      admin: session?.role === "admin",
       csrf: session ? csrfFor(cfg.sessionSecret, rawSession) : "",
       stickerUrl: (code) => stickerUrl(cfg.publicOrigin, code),
       categories: store.distinct("category"),
@@ -287,9 +288,13 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     if (r.state === "free") {
       const code = r.parsed.code;
       if (!session) return sendHtml(req, res, 200, V.loginPrompt(ctxFor(req, session), codeParam));
+      // Read-only accounts may look at an unbound sticker but must not claim it (§4.1).
+      if (session.role !== "admin") {
+        return sendHtml(req, res, 403, V.readOnlyPrompt(ctxFor(req, session), { code }));
+      }
       return sendHtml(req, res, 200, V.registerPage(ctxFor(req, session), { code }));
     }
-    const editing = Boolean(session) && url.searchParams.get("edit") === "1";
+    const editing = session?.role === "admin" && url.searchParams.get("edit") === "1";
     const okConfirm = confirm === "rebind" || confirm === "delete" ? confirm : null;
     renderItem(req, res, 200, session, { item: r.item, code: r.item.code, editing, confirm: okConfirm, url });
   }

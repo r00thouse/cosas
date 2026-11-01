@@ -168,6 +168,12 @@ dl.item dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .photo-panel label.radio { display: inline-flex; gap: 0.35rem; align-items: center; margin: 0.5rem 0; font-size: 1rem; color: var(--fg); }
 .photo-panel input[type="checkbox"] { width: auto; }
 
+/* Who is logged in, and with which role (§8.1). */
+nav .whoami { display: inline-flex; align-items: baseline; gap: 0.35rem; font-size: 0.85rem; color: var(--muted); }
+nav .whoami-name { color: var(--fg); font-weight: 600; }
+nav .whoami .badge { font-size: 0.7rem; }
+nav .whoami .role-member { color: var(--muted); }
+
 /* §8.9: the Add shortcut is the one nav item a phone user looks for. */
 nav .nav-add {
   border: 1px solid var(--accent);

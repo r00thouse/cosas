@@ -165,6 +165,24 @@ test("login issues a session; member (no admin role) is read-only", async () => 
     const res = await member(path, form({ _csrf: token, ...body }));
     assert.equal(res.status, 403, `${path} must be forbidden for a member`);
   }
+
+  // Write affordances are gone from the HTML for a reader, not merely rejected on POST.
+  const memberHome = await (await member("/")).text;
+  assert.doesNotMatch(memberHome, /class="nav-add"/, "no Add button for a member");
+  assert.doesNotMatch(memberHome, /href="\/codes"/, "no sticker printing for a member");
+  assert.doesNotMatch(memberHome, /href="\/export\.csv"/, "no export for a member");
+
+  const memberItem = await (await member(`/r/${code}`)).text;
+  assert.doesNotMatch(memberItem, /class="photo-panel"/, "no photo editor for a member");
+  assert.doesNotMatch(memberItem, /data-qty-delta/, "no qty controls for a member");
+  assert.doesNotMatch(memberItem, /\/rebind|\/delete/, "no rebind/delete for a member");
+
+  // An unregistered sticker tells a reader so instead of offering the register form.
+  const [free] = codesOf(await admin("/codes?n=1")).filter((k) => k !== code);
+  const ro = await member(`/r/${free}`);
+  assert.equal(ro.status, 403);
+  assert.match(ro.text, /Sticker not registered|Etiqueta sin registrar/);
+  assert.doesNotMatch(ro.text, /action="\/r\/[^"]+\/register"/);
 });
 
 test("print sheet, register through the sticker URL, then edit/qty/status", async () => {
