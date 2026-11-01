@@ -47,7 +47,7 @@ How to test it, layer by layer, is in [`TESTING.md`](TESTING.md).
 | [`dev.sh`](dev.sh) | Powers on / off / resets / smoke-tests the local platform (plain node, no build) |
 | [`compose.yaml`](compose.yaml) | Production-shaped: app only, published on all interfaces (firewall it), `${DB_DIR}`/`${PHOTO_HOST_DIR}` bind mounts, knobs from `.env` |
 | [`.env.example`](.env.example) | Operator configuration reference |
-| `server.js`, `store.js`, `oidc.js`, `code.js`, `codes.js`, `views.js`, `i18n.js`, `html.js`, `security.js`, `config.js`, `qrcode.js`, `multipart.js`, `photos.js` | The app: no framework, no build step (two deps, for QR only) |
+| `server.js`, `store.js`, `oidc.js`, `code.js`, `codes.js`, `views.js`, `i18n.js`, `html.js`, `security.js`, `config.js`, `qrcode.js`, `multipart.js`, `photos.js`, `assets.js` | The app: no framework, no build step (two deps, for QR only) |
 | `db/migrations/` | Schema migrations, applied at boot (`001_init` … `004_item_photos`) |
 | `public/` | CSS, browser scripts (`app.js`, `scan.js`), `sw.js`, manifest, icons |
 | `package.json`, `package-lock.json` | Runtime deps: `qrcode-generator` (server-side sticker SVG) and `jsqr` (camera decoding, served at `/vendor/jsQR.js`) |

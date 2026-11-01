@@ -7,6 +7,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, normalize, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createAssets } from "./assets.js";
 import { randomUUID } from "node:crypto";
 
 import { loadConfig } from "./config.js";
@@ -24,6 +25,12 @@ import { html } from "./html.js";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(HERE, "public");
+
+// §8.11: content hashes for every browser asset, computed once at boot.
+const assets = createAssets(PUBLIC_DIR, { "jsQR.js": join(HERE, "node_modules/jsqr/dist/jsQR.js") });
+// What the service worker precaches. The manifest is versioned through the same
+// global hash, so the worker and the manifest always agree on icon URLs.
+const SW_ASSETS = ["/static/app.css", "/static/app.js", "/static/scan.js", "/vendor/jsQR.js", "/static/icon-192.png", "/static/icon-512.png"];
 const MIME = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -39,7 +46,10 @@ const PAGE_SIZE = 50;
 const MAX_QTY = 100000;
 // A photo upload is the only large body: 8 MB of bytes plus multipart overhead,
 // with room for the phone's base64 fallback (~4/3 of the image).
-const MAX_BODY = 12 * 1024 * 1024;
+// Several photos can arrive in one register post (§8.8): 8 x 8 MB would be 64 MB, so
+// the cap is 24 MB and each file is checked against MAX_PHOTO as well. A phone posts
+// downscaled JPEGs (~150 KB each), so this only matters for a desktop without JS.
+const MAX_BODY = 24 * 1024 * 1024;
 
 /** Static files served from the repo root, outside the /static/ prefix (§5.2). */
 // Served from the repo root rather than public/: the PWA files must answer on "/" to
@@ -99,6 +109,7 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
       admin: session?.role === "admin",
       csrf: session ? csrfFor(cfg.sessionSecret, rawSession) : "",
       stickerUrl: (code) => stickerUrl(cfg.publicOrigin, code),
+      asset: (path) => assets.url(path),
       categories: store.distinct("category"),
       locations: store.distinct("location"),
       ...extra,
@@ -166,8 +177,14 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
         throw new HttpError(400, "err.internal");
       }
     }
+    // A repeated key (several downscaled `photo_data` fields) becomes an array, the
+    // same shape parseMultipart returns.
     const fields = {};
-    for (const [k, v] of new URLSearchParams(body.toString("utf8"))) fields[k] = v;
+    for (const [k, v] of new URLSearchParams(body.toString("utf8"))) {
+      if (fields[k] === undefined) fields[k] = v;
+      else if (Array.isArray(fields[k])) fields[k].push(v);
+      else fields[k] = [fields[k], v];
+    }
     return { fields, files: {} };
   }
 
@@ -175,19 +192,37 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
    * The photo of a form: an uploaded file, the phone's downscaled `photo_data`
    * data-URL, or nothing. Throws 422 when the bytes are not JPEG/PNG/WebP.
    */
-  function readPhoto(form, files) {
-    const upload = files && files.photo;
-    const bytes =
-      upload && upload.bytes && upload.bytes.length
-        ? upload.bytes
-        : form.photo_data
-          ? parseDataUrl(form.photo_data)
-          : null;
-    if (!bytes) return null;
-    if (bytes.length > MAX_PHOTO) throw new HttpError(413, "err.photo_too_big");
-    const kind = sniff(bytes);
-    if (!kind) throw new HttpError(422, "err.bad_photo");
-    return { bytes, ext: kind.ext };
+  /** One value, or every value of a repeated field (§5.4). */
+  function asList(value) {
+    if (value === undefined || value === null) return [];
+    return Array.isArray(value) ? value : [value];
+  }
+
+  /**
+   * Photos from a form (§8.8): every uploaded file plus every downscaled
+   * `photo_data` field, in order. Returns [{bytes, ext}]; throws an HttpError the
+   * caller turns into a field error.
+   */
+  function readPhotos(form, files) {
+    const out = [];
+    const check = (bytes) => {
+      if (bytes.length > MAX_PHOTO) throw new HttpError(413, "err.photo_too_big");
+      const kind = sniff(bytes);
+      if (!kind) throw new HttpError(422, "err.bad_photo");
+      out.push({ bytes, ext: kind.ext });
+    };
+    for (const up of asList(files && files.photo)) {
+      if (up && up.bytes && up.bytes.length) check(up.bytes);
+    }
+    for (const raw of asList(form.photo_data)) {
+      const text = String(raw ?? "").trim();
+      if (!text) continue;
+      const bytes = parseDataUrl(text);
+      if (!bytes) throw new HttpError(422, "err.bad_photo");
+      check(bytes);
+    }
+    if (out.length > MAX_PHOTOS) throw new HttpError(422, "err.photo_limit");
+    return out;
   }
 
   /** Item fields from a form (§8.2). Returns {values, errors}. */
@@ -318,9 +353,9 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     if (r.state !== "free") throw new HttpError(409, "err.code_taken", { existing: r.item });
     const c = ctxFor(req, session);
     const { values, errors } = readItemFields(form);
-    let photo = null;
+    let photos = [];
     try {
-      photo = readPhoto(form, files);
+      photos = readPhotos(form, files);
     } catch (e) {
       if (!(e instanceof HttpError)) throw e;
       errors.photo = e.key;
@@ -340,11 +375,11 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
       }
       throw new HttpError(409, "err.code_taken", { existing });
     }
-    if (photo) {
+    for (const photo of photos) {
       const name = await savePhoto(cfg.photoDir, item.id, photo.bytes, photo.ext);
       store.addPhoto(item.id, item.code, name, session.sub);
     }
-    log("info", "item.register", { code: item.code, actor: session.sub, photo: Boolean(photo) });
+    log("info", "item.register", { code: item.code, actor: session.sub, photos: photos.length });
     redirect(res, `/r/${item.code.toLowerCase()}`);
   }
 
@@ -353,7 +388,7 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     const { item } = boundOr410(codeParam);
     const home = `/r/${item.code.toLowerCase()}`;
     if (store.photosOf(item.id).length >= MAX_PHOTOS) throw new HttpError(422, "err.photo_limit");
-    const photo = readPhoto(form, files);
+    const photo = readPhotos(form, files)[0];
     if (!photo) throw new HttpError(422, "err.bad_photo");
     const name = await savePhoto(cfg.photoDir, item.id, photo.bytes, photo.ext);
     store.addPhoto(item.id, item.code, name, session.sub);
@@ -639,7 +674,7 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     redirect(res, "/", [setCookie(COOKIE.session, "", { maxAge: 0 })]);
   }
 
-  async function handleStatic(req, res, pathname) {
+  async function handleStatic(req, res, pathname, url) {
     const rel = decodeURIComponent(pathname.slice("/static/".length));
     // public/ is flat: one segment, no dots in the name, known extension only.
     if (!rel || rel.includes("/") || rel.includes("\\") || rel.startsWith(".") || rel.includes("\0")) {
@@ -655,7 +690,9 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     } catch {
       throw new HttpError(404, "err.not_found");
     }
-    send(req, res, 200, data, { "content-type": MIME[ext], "cache-control": "public, max-age=3600" });
+    // A versioned URL can be cached forever: changing a file changes the URL (§8.11).
+    const cache = url?.searchParams.get("v") === assets.version ? "public, max-age=31536000, immutable" : "public, max-age=300";
+    send(req, res, 200, data, { "content-type": MIME[ext], "cache-control": cache });
   }
 
   /** `/manifest.webmanifest`, `/sw.js` and the vendored QR decoder. */
@@ -667,7 +704,17 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     } catch {
       throw new HttpError(404, "err.not_found");
     }
-    send(req, res, 200, data, { "content-type": spec.type, "cache-control": spec.cache });
+    let body = data;
+    if (pathname === "/sw.js" || pathname === "/manifest.webmanifest") {
+      const list = SW_ASSETS.map((p) => assets.url(p)).concat("/manifest.webmanifest");
+      body = Buffer.from(
+        data
+          .toString("utf8")
+          .replaceAll("__VERSION__", assets.version)
+          .replace("__ASSETS__", () => JSON.stringify(list)),
+      );
+    }
+    send(req, res, 200, body, { "content-type": spec.type, "cache-control": spec.cache });
   }
 
   // ---------------------------------------------------------------- routing
@@ -699,7 +746,7 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     ["GET", "/export.csv", (req, res) => handleExport(req, res), "member"],
     ["GET", "/codes", (req, res, s, url) => handleCodes(req, res, s, url), "member"],
     ["GET", "/codes/svg", (req, res, s, url) => handleCodesSvg(req, res, s, url), "member"],
-    ["GET", "/static/:file", (req, res, s, url) => handleStatic(req, res, url.pathname), "anon"],
+    ["GET", "/static/:file", (req, res, s, url) => handleStatic(req, res, url.pathname, url), "anon"],
   ];
 
   function matchRoute(method, pathname) {

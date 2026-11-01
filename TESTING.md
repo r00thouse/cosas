@@ -170,6 +170,15 @@ bug report can just say "12.7 fails".
     *Add to Home Screen* (Safari). Install it, then set devtools to *Offline* and
     reload: you get the built-in offline page, **not** a stale item list. Photos and
     `/export.csv` are never cached.
+18. **Cache invalidation** (12.28) — view source: the stylesheet and scripts are
+    linked as `/static/app.css?v=<hash>`. `curl -s localhost:8080/sw.js | head -8`
+    shows the same hash in `VERSION`. Then edit a byte in `public/app.css`, restart
+    (the dev watcher only watches `server.js` and modules, so touch it with
+    `WATCH=1 ./dev.sh up` and reload the CSS by hand, or just restart), and check the
+    hash changed in both places: that is the whole mechanism.
+19. **Several photos** (12.29) and **category autocomplete** (12.30) — on the
+    register form pick two images before submitting (both thumbs appear), and type
+    `mon` into Category (the `monitor` suggestion is tappable; `Enter` accepts).
 
 ### 4.3 Layer 3 — the production shape
 

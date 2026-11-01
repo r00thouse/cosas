@@ -135,3 +135,24 @@ test("collectGarbage removes only files no row points at", async () => {
 test("MAX_PHOTO is 8 MB", () => {
   assert.equal(MAX_PHOTO, 8 * 1024 * 1024);
 });
+
+test("repeated part names become arrays (several photos in one post)", () => {
+  const B = "----photos";
+  const body = Buffer.concat([
+    Buffer.from(`--${B}\r\nContent-Disposition: form-data; name="_csrf"\r\n\r\ntok\r\n`),
+    Buffer.from(`--${B}\r\nContent-Disposition: form-data; name="photo_data"\r\n\r\ndata:image/png;base64,AAAA\r\n`),
+    Buffer.from(`--${B}\r\nContent-Disposition: form-data; name="photo_data"\r\n\r\ndata:image/png;base64,BBBB\r\n`),
+    Buffer.from(`--${B}\r\nContent-Disposition: form-data; name="photo"; filename="a.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`),
+    Buffer.from([0xff, 0xd8, 0xff, 0x00]),
+    Buffer.from("\r\n"),
+    Buffer.from(`--${B}\r\nContent-Disposition: form-data; name="photo"; filename="b.png"\r\nContent-Type: image/png\r\n\r\n`),
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+    Buffer.from("\r\n"),
+    Buffer.from(`--${B}--\r\n`),
+  ]);
+  const { fields, files } = parseMultipart(body, B);
+  assert.equal(fields._csrf, "tok", "a lone field stays a string");
+  assert.equal(fields.photo_data.length, 2);
+  assert.equal(files.photo.length, 2);
+  assert.equal(files.photo[1].filename, "b.png");
+});

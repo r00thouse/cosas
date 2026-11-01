@@ -1,7 +1,8 @@
-// multipart/form-data parser (SPEC.md §5.4). One form field per part, at most one
-// file per field, no nesting: exactly what a `<form enctype="multipart/form-data">`
-// with a single `<input type="file">` produces. No dependencies, no streaming —
-// the caller caps the body size before calling.
+// multipart/form-data parser (SPEC.md §5.4). Flat parts, no nesting. A name that
+// repeats (several `<input type="file" name="photo">`, or several downscaled
+// `photo_data` fields) becomes an array; a name seen once stays a plain value, so
+// ordinary form fields keep working unchanged. No dependencies, no streaming — the
+// caller caps the body size before calling.
 export class MultipartError extends Error {
   constructor(code) {
     super(code);
@@ -11,6 +12,14 @@ export class MultipartError extends Error {
 
 const CRLF = Buffer.from("\r\n");
 const HEAD_END = Buffer.from("\r\n\r\n");
+
+/** Store `value` under `key`, turning a repeat into an array. */
+function push(bag, key, value) {
+  const seen = bag[key];
+  if (seen === undefined) bag[key] = value;
+  else if (Array.isArray(seen)) seen.push(value);
+  else bag[key] = [seen, value];
+}
 
 /** `multipart/form-data; boundary=...` -> boundary string, or null. */
 export function boundaryOf(contentType) {
@@ -62,13 +71,13 @@ export function parseMultipart(body, boundary, { maxFile = 8 * 1024 * 1024, maxP
       if (filename) {
         if (data.length > maxFile) throw new MultipartError("file_too_large");
         const ct = /^content-type:\s*([^\r\n]+)$/im.exec(headerText);
-        files[key] = {
+        push(files, key, {
           filename: filename[1].slice(0, 200),
           type: ct ? ct[1].trim().slice(0, 100) : "",
           bytes: Buffer.from(data),
-        };
+        });
       } else {
-        fields[key] = data.toString("utf8");
+        push(fields, key, data.toString("utf8"));
       }
     }
 

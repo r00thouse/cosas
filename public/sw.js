@@ -1,20 +1,17 @@
 // §8.10: the PWA service worker. It only ever caches our own static assets, so a
 // signed-in page is NEVER served from the cache — the inventory stays a network-only
 // app. Pages that fail offline get a small built-in page.
-const CACHE = "cosas-v2";
-const STATIC = [
-  "/static/app.css",
-  "/static/app.js",
-  "/vendor/jsQR.js",
-  "/static/icon-192.png",
-  "/static/icon-512.png",
-  "/manifest.webmanifest",
-];
+// §8.11: the two placeholders are filled in by the server from the current asset
+// hashes. A deploy changes them, so this file changes, so the browser installs a new
+// worker, which opens a new cache and deletes the old one.
+const VERSION = "__VERSION__";
+const CACHE = "cosas-" + VERSION;
+const STATIC = __ASSETS__;
 
 const OFFLINE = [
   "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">",
   "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
-  "<title>Offline</title><link rel=\"stylesheet\" href=\"/static/app.css\"></head>",
+  "<title>Offline</title><link rel=\"stylesheet\" href=\"" + STATIC[0] + "\"></head>",
   "<body><div class=\"wrap\"><h1>Offline</h1>",
   "<p>The network is not reachable right now. The stickers and the printed sheet still work as paper.</p>",
   "<p>La red no está disponible ahora. Las etiquetas y la hoja impresa siguen sirviendo como papel.</p>",

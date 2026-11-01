@@ -322,7 +322,30 @@ test("PWA: manifest, service worker and icons are served", async () => {
 
   const home = await c("/");
   assert.match(home.text, /rel="manifest" href="\/manifest\.webmanifest"/);
-  assert.match(home.text, /\/static\/app\.js/);
+  assert.match(home.text, /\/static\/app\.js\?v=[0-9a-f]{10}/);
+});
+
+test("asset versioning: a deploy changes every asset URL and the worker cache", async () => {
+  const c = client();
+  const home = await c("/");
+  const version = /\/static\/app\.css\?v=([0-9a-f]{10})/.exec(home.text)?.[1];
+  assert.ok(version, "the stylesheet is linked with a content hash");
+
+  // A versioned URL may be cached forever: changing the file changes the URL.
+  const css = await c(`/static/app.css?v=${version}`);
+  assert.equal(css.status, 200);
+  assert.match(css.headers.get("cache-control"), /immutable/);
+  // An unversioned one must not be pinned for a year.
+  assert.doesNotMatch((await c("/static/app.css")).headers.get("cache-control"), /immutable/);
+
+  const sw = await c("/sw.js");
+  assert.doesNotMatch(sw.text, /__VERSION__|__ASSETS__/, "the worker template is filled in");
+  assert.match(sw.text, new RegExp(`const VERSION = "${version}"`), "the worker carries the version");
+  assert.match(sw.text, /const CACHE = "cosas-" \+ VERSION/, "the cache name is derived from it");
+  assert.match(sw.text, new RegExp(`/static/app\\.css\\?v=${version}`), "the precache list is versioned");
+
+  const man = JSON.parse((await c("/manifest.webmanifest")).text);
+  assert.ok(man.icons.every((i) => i.src.endsWith(`?v=${version}`)), "icons are versioned too");
 });
 
 test("add by phone: /add scanner page is admin-only and accepts the typed fallback", async () => {
@@ -370,6 +393,8 @@ test("photos: multipart register, add several, delete one, access control", asyn
     part("name", "Switch 8 puertos"),
     part("category", "switch"),
     part("photo", JPEG, "switch.jpg", "image/jpeg"),
+    // Two files in one register post: the form takes several photos at once (§8.8).
+    part("photo", PNG, "label.png", "image/png"),
     Buffer.from(`--${B}--\r\n`),
   ]);
 
@@ -382,7 +407,9 @@ test("photos: multipart register, add several, delete one, access control", asyn
 
   const first = (await c(`/r/${code}`)).text;
   assert.match(first, /Switch 8 puertos/);
-  const firstId = /<img class="photo-thumb" src="\/photo\/[0-9a-z]+\/(\d+)"/.exec(first)?.[1];
+  const registered = [...first.matchAll(/<img class="photo-thumb" src="\/photo\/[0-9a-z]+\/(\d+)"/g)].map((m) => m[1]);
+  assert.equal(registered.length, 2, "both photos of the register post are kept");
+  const firstId = registered[0];
   assert.ok(firstId, "the registered photo is in the grid");
   assert.match(first, /Add another photo/, "the uploader switches to 'add another'");
 
@@ -400,7 +427,7 @@ test("photos: multipart register, add several, delete one, access control", asyn
   assert.equal(added.status, 302);
   const two = (await c(`/r/${code}`)).text;
   const ids = [...two.matchAll(/<img class="photo-thumb" src="\/photo\/[0-9a-z]+\/(\d+)"/g)].map((m) => m[1]);
-  assert.equal(ids.length, 2, "two photos in the grid");
+  assert.equal(ids.length, 3, "three photos in the grid");
   assert.match((await c(`/photo/${code}/${ids[1]}`)).headers.get("content-type"), /image\/png/);
 
   // Bytes that are not an image are refused and the grid is untouched.

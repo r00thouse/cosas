@@ -95,8 +95,8 @@ export const STRINGS = {
   "photo.add": { en: "Take or choose a photo", es: "Tomar o elegir una foto" },
   "photo.upload": { en: "Upload", es: "Subir" },
   "photo.hint": {
-    en: "JPEG, PNG or WebP up to 8 MB. A phone sends a smaller copy.",
-    es: "JPEG, PNG o WebP de hasta 8 MB. Un teléfono envía una copia más chica.",
+    en: "Up to 8 photos. JPEG, PNG or WebP, 8 MB each; a phone sends a smaller copy.",
+    es: "Hasta 8 fotos. JPEG, PNG o WebP, 8 MB cada una; un teléfono envía una copia más chica.",
   },
 
   "item.name": { en: "Name", es: "Nombre" },

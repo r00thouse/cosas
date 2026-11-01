@@ -329,6 +329,10 @@ cmd_test() {
   check "12.23 /manifest.webmanifest" 200 "$(code "$APP_URL/manifest.webmanifest")"
   check "12.23 /sw.js" 200 "$(code "$APP_URL/sw.js")"
   check "12.23 /static/icon-192.png" 200 "$(code "$APP_URL/static/icon-192.png")"
+  # §8.11: the page links a versioned stylesheet, and the worker carries that version.
+  ver="$(curl -s "$APP_URL/" | grep -o 'app\.css?v=[0-9a-f]\{10\}' | head -1 | cut -d= -f2)"
+  check "12.28 /static/app.css?v=<hash>" 200 "$(code "$APP_URL/static/app.css?v=$ver")"
+  check "12.28 the worker carries the same version" 1 "$(curl -s "$APP_URL/sw.js" | grep -c "const VERSION = \"$ver\"")"
   check "12.23 /add without a session → 403" 403 "$(code "$APP_URL/add")"
   check "12.23 /add with a session → 200" 200 "$(code -b "$jar" "$APP_URL/add")"
   if [[ -n $first ]]; then

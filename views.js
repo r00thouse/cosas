@@ -17,6 +17,7 @@ export function pageCtx(t, lang, session) {
 
 export function layout(c, { title, body, page = "" }) {
   const { t, lang, member, admin, session } = c;
+  const asset = c.asset || ((p) => p);
   return html`<!doctype html>
 <html lang="${lang}">
 <head>
@@ -25,10 +26,10 @@ export function layout(c, { title, body, page = "" }) {
 <meta name="theme-color" content="#1f5f3f" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#141516" media="(prefers-color-scheme: dark)">
 <title>${title} — ${t("app.title")}</title>
-<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="${asset("/static/app.css")}">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/static/icon-192.png" sizes="192x192">
-<link rel="apple-touch-icon" href="/static/icon-180.png">
+<link rel="icon" href="${asset("/static/icon-192.png")}" sizes="192x192">
+<link rel="apple-touch-icon" href="${asset("/static/icon-180.png")}">
 </head>
 <body data-page="${page}">
 <div class="wrap">
@@ -54,7 +55,7 @@ ${body}
 </main>
 <footer>${t("app.title")} · ${t("footer.made_by")}</footer>
 </div>
-<script src="/static/app.js" defer></script>
+<script src="${asset("/static/app.js")}" defer></script>
 </body>
 </html>`;
 }
@@ -304,20 +305,20 @@ export function formFields(c, values, errors, { code, categories, locations, mod
 ${datalist}
 ${mode === "register"
   ? html`<label for="photo">${t("item.photo")}${err("photo")}</label>
-<input id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp">
-<img class="photo-preview" data-photo-preview alt="" hidden>
+<input id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+<div class="photo-preview-row" data-photo-previews></div>
 <p class="hint">${t("photo.hint")}</p>`
   : raw("")}
 <label for="name">${t("item.name")} *${err("name")}</label>
 <input id="name" name="name" required maxlength="200" value="${v.name || ""}" placeholder="${t("form.name_placeholder")}">
 <label for="category">${t("item.category")} *${err("category")}</label>
-<input id="category" name="category" list="categories" required maxlength="100" value="${v.category || ""}" placeholder="${t("form.category_placeholder")}">
+<div class="combo"><input id="category" name="category" list="categories" data-suggest="categories" autocomplete="off" required maxlength="100" value="${v.category || ""}" placeholder="${t("form.category_placeholder")}"></div>
 <label for="model">${t("item.model")}</label>
 <input id="model" name="model" maxlength="200" value="${v.model || ""}" placeholder="${t("form.model_placeholder")}">
 <label for="serial">${t("item.serial")}</label>
 <input id="serial" name="serial" maxlength="200" value="${v.serial || ""}" placeholder="${t("form.serial_placeholder")}">
 <label for="location">${t("item.location")}</label>
-<input id="location" name="location" list="locations" maxlength="200" value="${v.location || ""}" placeholder="${t("form.location_placeholder")}">
+<div class="combo"><input id="location" name="location" list="locations" data-suggest="locations" autocomplete="off" maxlength="200" value="${v.location || ""}" placeholder="${t("form.location_placeholder")}"></div>
 <fieldset>
   <legend>${t("item.status")}</legend>
   ${STATUSES.map(
@@ -434,8 +435,8 @@ ${error ? html`<p class="error">${t(error)}</p>` : raw("")}
   </div>
 </form>
 <p class="hint">${t("add.https_hint")}</p>
-<script src="/vendor/jsQR.js" defer></script>
-<script src="/static/scan.js" defer></script>`,
+<script src="${c.asset("/vendor/jsQR.js")}" defer></script>
+<script src="${c.asset("/static/scan.js")}" defer></script>`,
   });
 }
 

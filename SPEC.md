@@ -781,6 +781,22 @@ Always `deleted_at IS NULL`. Case-insensitive via `LIKE … ESCAPE '\'` with `%`
 - `location`: `SELECT DISTINCT location FROM items WHERE location <> '' AND deleted_at IS NULL`.
   Not pre-seeded; free text is expected.
 
+Both fields render twice, on purpose:
+
+1. a `<datalist>` in the markup (kept for browsers without JS and for the native
+   picker), and
+2. `public/app.js` `wireCombo()` turns the input into a tappable combo box: the same
+   options, filtered on every keystroke, prefix matches first, at most 8 rows,
+   `ArrowUp/ArrowDown` to move, `Enter` to accept, `Escape` to dismiss, `mousedown`
+   to pick with a thumb. The list is positioned inside a `.combo` wrapper that the
+   template emits around the input, so it overlays the next field instead of pushing
+   the form down.
+
+Why both: the native datalist is unusable on some Android keyboards and Safari, and
+the whole point of the field is that an operator with a sticker in one hand types
+three letters and taps the right category. The input stays free text either way —
+a new category is created by typing it (§8.5, no auto-creation).
+
 ### 8.6 410 and 409 pages
 
 **410**, two variants, both rendered with the normal page shell:
@@ -847,10 +863,17 @@ so the panel stays a grid and the export stays small, not for storage reasons.
   2. `photo_data` in the ordinary form body, a `data:image/…;base64,…` URL produced
      by `public/app.js` after it redraws the picked file at 1200 px / JPEG q0.75.
      This is the phone path: a 4 MB camera shot leaves as ~150 KB.
-  JS replaces the file input with the hidden `photo_data` field when it downscales,
-  so only one of the two ever arrives.
-- **Where it shows.** The register form (§8.2) accepts one photo as part of creating
-  the item. The item page (§8.3) has a photo panel: a grid of square thumbnails
+  Several files may be picked at once (`multiple`), and picking again adds more:
+  each file becomes its own `photo_data` field, the file input is cleared (`value = ""`)
+  so the originals never travel next to their downscaled copies, and a thumbnail is
+  appended to `[data-photo-previews]`. A repeated field name is an array in both the
+  multipart and the urlencoded parser (`multipart.js`), so one register post can carry
+  up to `MAX_PHOTOS` (8) photos. The body cap is 24 MB (`server.js` `MAX_BODY`)
+  and every file is checked against `MAX_PHOTO` (8 MB).
+- **Where it shows.** The register form (§8.2) accepts several photos as part of
+  creating the item, which is what the phone "Add" flow needs: scan the sticker, take
+  the label photo, take the front photo, save — one form, one round trip. The item
+  page (§8.3) has a photo panel: a grid of square thumbnails
   (each linked to the full-size bytes, each with its own `[Delete photo]` form), then
   `[Take or choose a photo]` / `[Add another photo]`, `[Upload]`, and a local preview
   via `[data-photo-preview]`. Deleting one photo never touches the others.
@@ -923,6 +946,33 @@ breakpoint `@media (max-width: 40rem)`:
 - `public/app.js` registers the worker on load, only when
   `window.isSecureContext` is true (so plain-http LAN visits simply skip it).
   Nothing in the app requires the worker: it is an enhancement.
+
+### 8.11 Asset versioning (invalidate the browser cache on deploy)
+
+The problem: `/static/app.css` and `/static/app.js` keep their path across deploys,
+so a browser or a CDN may serve the previous release for as long as its TTL says —
+and an installed PWA keeps the old worker. A deploy must therefore change the URL
+of every asset and the bytes of `/sw.js`.
+
+- `assets.js` hashes the bytes of every file in `public/` (plus the vendored
+  `jsQR.js`) at boot with sha256, folds them into one 10-hex `version`, and exposes
+  `url(path)` → `path + "?v=" + version` for known assets, `path` untouched otherwise.
+  There is no build step and no manifest to maintain: add a file to `public/` and it
+  is covered. `createAssets(publicDir, extra)` also returns `version`.
+- Every page links its stylesheet, icons and scripts through `c.asset(...)`
+  (`ctxFor`), so a deploy changes the HTML the server sends — and HTML is
+  `no-store` (§5.1), so nothing else has to be purged.
+- `GET /static/:file?v=<current version>` answers
+  `cache-control: public, max-age=31536000, immutable`; an unversioned request gets
+  `public, max-age=300` (so a stray link cannot pin a year of stale bytes).
+- `public/sw.js` is a template: `__VERSION__` becomes the version and `__ASSETS__`
+  becomes the versioned precache list. The worker's cache name is `cosas-<version>`,
+  so a new deploy installs a new worker, opens a new cache and deletes the old one
+  (§8.10). `GET /sw.js` and `GET /manifest.webmanifest` substitute the same version;
+  the manifest's icon URLs carry it too.
+- Nothing is invalidated by hand, and no `APP_VERSION`/git hash has to be injected:
+  the files on disk are the source of truth. A deploy that changes nothing changes
+  no URL, which is correct.
 
 ---
 
@@ -1387,6 +1437,19 @@ Environment: `./dev.sh` (starts the app with `node --watch` and the mock IdP on
     sticker is recognised in a couple of seconds, landing on `/r/<code>`. A QR for
     another site shows "not one of our stickers" and scanning continues. Denying the
     camera leaves the typed fallback usable.
+28. **Cache invalidation (§8.11)**: `curl -s $APP/ | grep -o 'app.css?v=[0-9a-f]*'`
+    shows a hash; that exact URL is served with `cache-control: … immutable`, the bare
+    `/static/app.css` is not; `/sw.js` has no `__VERSION__` left and its cache name
+    carries the same hash. Touch a byte in `public/app.css`, restart, and both the
+    page URL and the worker's cache name change — that is what makes a browser drop
+    the previous release.
+29. **Several photos at once**: on the register form pick two images, submit, and the
+    item opens with two thumbnails (plus any added later). The browser must not post
+    the originals: with devtools open, the multipart body carries two `photo_data`
+    fields and an empty `photo` part.
+30. **Category autocomplete**: typing `mon` into Category on the register form shows
+    `monitor` in a tappable list; `ArrowDown` + `Enter` accepts it, `Escape` closes
+    it, and typing a brand-new name still creates that category.
 
 ---
 
@@ -1414,6 +1477,8 @@ app bootable.
 7. `qrcode.js` (thin wrapper over `qrcode-generator`) + `/codes` and `/codes/svg`
    (§8.7), plus the CLI in §7.4 sharing `code.js`.
 8. `/export.csv`.
+8b. `assets.js` + the versioned asset URLs, the `/sw.js` and manifest placeholders
+   (§8.11). Do this before the PWA step so the worker template already has a version.
 9. `tools/mock-idp/` (§11), `Dockerfile`, `.dockerignore`, `compose.yaml`,
    `.env.example`, `dev.sh` (generates `.dev/env`).
 10. Walk §12 top to bottom and fix what fails. Do not "improve" anything outside
@@ -1435,6 +1500,7 @@ app bootable.
 | Q19 | One search box + three fixed filters | no FTS, no sort UI |
 | Q20 | Anonymous sees public subset only | found-device UX without leaking serials/held_by |
 | Q21/Q23 | Hand-rolled migration runner, not a library | keeps deps at zero; native build avoided |
+| Q33 | Asset URLs carry a content hash; the worker cache name carries it too | a deploy must reach a browser that has the old CSS and an installed PWA, without asking anyone to hard-refresh |
 | Q22/Q27 | CSV export in; no import/camera/uploads/email | cheap, read-only, operator-friendly |
 | Q24/Q30 | Plain HTTP behind existing nginx; one scan path | operator already has TLS; fewer routes |
 | Q25 | Friendly domain only; text fallback under QR | no second vhost |
