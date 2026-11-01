@@ -28,6 +28,8 @@ function cropTemplate(c) {
 </template>`;
 }
 
+const NAV_SECTION = { list: "home", item: "home", gone: "home", taken: "home", add: "add", register: "add", codes: "codes" };
+
 export function pageCtx(t, lang, session) {
   return { t, lang, session, member: Boolean(session) };
 }
@@ -35,6 +37,10 @@ export function pageCtx(t, lang, session) {
 export function layout(c, { title, body, page = "", cropper = false }) {
   const { t, lang, member, admin, session } = c;
   const asset = c.asset || ((p) => p);
+  // Which nav entry the page belongs to, so the menu shows where you are. Registering
+  // is the second half of Add; an item page lives under Items. Export is a download.
+  const section = NAV_SECTION[page] || "";
+  const current = (name) => (name === section ? raw(' aria-current="page"') : raw(""));
   return html`<!doctype html>
 <html lang="${lang}">
 <head>
@@ -54,9 +60,9 @@ ${cropper ? raw(`<link rel="stylesheet" href="${asset("/vendor/cropper.css")}">`
 <header class="top">
   <a class="brand" href="/">${t("app.title")}</a>
   <nav class="nav-main">
-    ${admin ? html`<a class="nav-add" href="/add">${t("nav.add")}</a>` : raw("")}
-    <a href="/">${t("nav.home")}</a>
-    ${admin ? html`<a href="/codes">${t("nav.print")}</a><a href="/export.csv">${t("nav.export")}</a>` : raw("")}
+    ${admin ? html`<a class="nav-add" href="/add"${current("add")}>${t("nav.add")}</a>` : raw("")}
+    <a href="/"${current("home")}>${t("nav.home")}</a>
+    ${admin ? html`<a href="/codes"${current("codes")}>${t("nav.print")}</a><a href="/export.csv">${t("nav.export")}</a>` : raw("")}
   </nav>
   <nav class="nav-account">
     ${member
