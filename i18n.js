@@ -94,6 +94,8 @@ export const STRINGS = {
   "photo.delete": { en: "Delete photo", es: "Borrar foto" },
   "photo.add": { en: "Take or choose a photo", es: "Tomar o elegir una foto" },
   "photo.upload": { en: "Upload", es: "Subir" },
+  "photo.take": { en: "Take photo", es: "Tomar foto" },
+  "photo.choose": { en: "Choose files", es: "Elegir archivos" },
   "crop.rotate": { en: "Rotate", es: "Girar" },
   "crop.whole": { en: "Use whole photo", es: "Usar foto completa" },
   "crop.apply": { en: "Crop", es: "Recortar" },
