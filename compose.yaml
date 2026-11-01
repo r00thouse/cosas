@@ -1,0 +1,28 @@
+# Production: app only. TLS terminates at the operator's nginx.
+# Dev overlay: compose.dev.yaml (adds a mock IdP and local secrets).
+services:
+  app:
+    build: .
+    image: hacklab-cosas:1.0
+    # compose project dir = this directory (the app reads no files outside it)
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 8080
+      DB_PATH: /data/cosas.db
+      TRUST_PROXY: "1"
+    volumes: !override
+      - ${DB_DIR:-./data}:/data
+    # published only on loopback in prod; the dev overlay REPLACES this list with
+    # ["8080:8080"] (Compose appends ports across files unless overridden with !reset)
+    ports: !override
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3

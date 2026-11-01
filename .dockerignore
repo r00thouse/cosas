@@ -1,0 +1,16 @@
+.git
+dev-data
+data
+node_modules
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+codes.txt
+codes.counter
+docs
+tools/mock-idp
+tools/test
+compose*.yaml
+*.md

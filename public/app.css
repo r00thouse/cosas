@@ -1,0 +1,157 @@
+/* One hand-written stylesheet (SPEC.md §1). Mobile-first, two type sizes, no colors
+   beyond the status badges. Print rules for the 60x30 mm sticker sheets live at the
+   bottom (§8.7): 3 columns x 7 rows per A4 page. */
+:root {
+  color-scheme: light dark;
+  --fg: #17181a;
+  --bg: #fbfbfa;
+  --muted: #5c6066;
+  --line: #d9d9d4;
+  --accent: #1f5f3f;
+  --ok: #1f5f3f;
+  --busy: #1b4f8a;
+  --bad: #8a2b1b;
+  --lost: #6b5a12;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e8e8e4;
+    --bg: #141516;
+    --muted: #a2a6ab;
+    --line: #34373b;
+    --accent: #7fc9a4;
+    --ok: #7fc9a4;
+    --busy: #8fbdf0;
+    --bad: #f0a08f;
+    --lost: #e4cf7c;
+  }
+}
+* { box-sizing: border-box; }
+html { font-size: 16px; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 1rem/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+a { color: var(--accent); }
+h1 { font-size: 1.35rem; margin: 0 0 0.75rem; }
+h2 { font-size: 1.05rem; margin: 1.25rem 0 0.5rem; }
+.wrap { max-width: 52rem; margin: 0 auto; padding: 0.75rem 1rem 3rem; }
+
+/* header / nav */
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1rem;
+}
+.top .brand { font-weight: 600; }
+nav { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: baseline; }
+nav form { display: inline; }
+.lang { display: inline-flex; gap: 0.25rem; }
+.subtitle { color: var(--muted); margin: -0.25rem 0 1rem; }
+footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 2rem; padding-top: 0.75rem; font-size: 0.85rem; }
+
+/* buttons / links that act as buttons */
+button, .button {
+  font: inherit;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+button.danger { color: var(--bad); }
+button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; }
+button.link.current { color: var(--fg); text-decoration: none; font-weight: 600; }
+
+/* forms */
+label { display: block; margin: 0.6rem 0 0.15rem; color: var(--muted); font-size: 0.9rem; }
+input, select, textarea {
+  font: inherit;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+}
+textarea { min-height: 5rem; }
+fieldset { border: 0; padding: 0; margin: 0.75rem 0 0; }
+fieldset label.radio { display: inline-flex; gap: 0.35rem; margin-right: 1rem; color: var(--fg); font-size: 1rem; }
+fieldset input[type="radio"] { width: auto; }
+.row { display: flex; gap: 0.5rem; align-items: end; flex-wrap: wrap; }
+.row > * { flex: 1 1 10rem; }
+.row > button { flex: 0 0 auto; }
+.actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.75rem 0; }
+.panel { border: 1px solid var(--line); border-radius: 6px; padding: 0.75rem 1rem; margin: 1rem 0; }
+.readonly { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.03em; }
+.error { color: var(--bad); }
+.hint { color: var(--muted); }
+.hidden { display: none; }
+
+/* list */
+table.list { width: 100%; border-collapse: collapse; }
+table.list th, table.list td { text-align: left; padding: 0.4rem 0.35rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.list th { color: var(--muted); font-weight: 500; font-size: 0.85rem; }
+.filters { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: end; margin: 0 0 0.75rem; }
+.filters > * { flex: 1 1 9rem; }
+.filters > button { flex: 0 0 auto; }
+.pager { display: flex; gap: 0.75rem; align-items: center; margin-top: 0.75rem; }
+.badge { font-size: 0.85rem; border: 1px solid currentColor; border-radius: 999px; padding: 0 0.5rem; white-space: nowrap; }
+.badge.available { color: var(--ok); }
+.badge.in_use { color: var(--busy); }
+.badge.broken { color: var(--bad); }
+.badge.missing { color: var(--lost); }
+dl.item { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0.75rem 0; }
+dl.item dt { color: var(--muted); }
+dl.item dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.qr { width: 8rem; height: 8rem; }
+.qty-controls { display: inline-flex; gap: 0.35rem; align-items: center; }
+.qty-controls form { display: inline; }
+.code-panel { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+.code-panel .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.1rem; }
+
+/* sticker sheet (§8.7): 60 x 30 mm stickers, 3 x 7 per A4 page */
+.sheet {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 60mm);
+  gap: 0.2mm;
+  margin: 1rem 0;
+}
+.sticker {
+  width: 60mm;
+  height: 30mm;
+  border: 0.2mm solid var(--line);
+  padding: 2mm;
+  display: grid;
+  grid-template-columns: 24mm 1fr;
+  gap: 2mm;
+  align-items: center;
+  overflow: hidden;
+}
+.sticker canvas, .sticker img { width: 24mm; height: 24mm; image-rendering: pixelated; }
+.sticker .text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 8pt; line-height: 1.25; white-space: pre; }
+.sticker .host { font-size: 6pt; color: var(--muted); margin-top: 1mm; overflow-wrap: anywhere; }
+.sheet-form { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: end; margin-bottom: 0.5rem; }
+.sheet-form > * { flex: 0 0 8rem; }
+.sheet-form > button { flex: 0 0 auto; }
+
+@media print {
+  @page { size: A4; margin: 5mm; }
+  body { background: #fff; color: #000; }
+  .top, footer, .no-print { display: none !important; }
+  .wrap { max-width: none; padding: 0; }
+  .sheet { grid-template-columns: repeat(3, 60mm); margin: 0; }
+  .sticker { border-color: #ccc; break-inside: avoid; page-break-inside: avoid; }
+  .sticker .host { color: #000; }
+}

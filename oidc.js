@@ -1,0 +1,192 @@
+// Minimal OpenID Connect client for Kanidm (SPEC.md §4.3, §5.3):
+// discovery, authorization-code + PKCE (S256), Basic-auth token exchange, ES256
+// id_token verification against the issuer JWKS. ~180 lines, no dependencies.
+import { createHash, createPublicKey, randomBytes, verify } from "node:crypto";
+
+const JWKS_TTL_MS = 60 * 60 * 1000;
+
+export class OidcError extends Error {
+  constructor(kind, detail) {
+    super(`${kind}${detail ? `: ${detail}` : ""}`);
+    this.kind = kind;
+  }
+}
+
+const b64urlJson = (part) => {
+  try {
+    return JSON.parse(Buffer.from(part, "base64url").toString("utf8"));
+  } catch {
+    throw new OidcError("malformed_jwt");
+  }
+};
+
+export async function fetchJson(url, init, timeoutMs = 5000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...init, signal: ctrl.signal, redirect: "error" });
+    if (!res.ok) throw new OidcError("http_status", `${res.status} ${url}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export class OidcClient {
+  /**
+   * @param {object} cfg loadConfig() result
+   * @param {(level,msg,fields?)=>void} log
+   */
+  constructor(cfg, log) {
+    this.cfg = cfg;
+    this.log = log;
+    this.discovery = null;
+    this.jwks = null;
+    this.jwksAt = 0;
+    this.jwksPromise = null;
+  }
+
+  async init() {
+    const doc = await fetchJson(this.cfg.oidcDiscoveryUrl);
+    for (const k of ["issuer", "authorization_endpoint", "token_endpoint", "jwks_uri"]) {
+      if (typeof doc[k] !== "string" || !doc[k]) throw new OidcError("bad_discovery", k);
+    }
+    if (this.cfg.oidcIssuer && doc.issuer !== this.cfg.oidcIssuer) {
+      throw new OidcError("issuer_mismatch", `expected ${this.cfg.oidcIssuer}, got ${doc.issuer}`);
+    }
+    this.discovery = doc;
+    await this.getJwks();
+    this.log("info", "oidc.discovery", { issuer: doc.issuer });
+  }
+
+  redirectUri() {
+    return `${this.cfg.publicOrigin}/oidc/callback`;
+  }
+
+  /** The authorization URL; `state` and `challenge` come from the oidc_tx cookie. */
+  authorizeUrl(state, challenge) {
+    const u = new URL(this.discovery.authorization_endpoint);
+    u.searchParams.set("response_type", "code");
+    u.searchParams.set("client_id", this.cfg.oidcClientId);
+    u.searchParams.set("redirect_uri", this.redirectUri());
+    u.searchParams.set("scope", this.cfg.oidcScopes);
+    u.searchParams.set("state", state);
+    u.searchParams.set("code_challenge", challenge);
+    u.searchParams.set("code_challenge_method", "S256");
+    return u.toString();
+  }
+
+  async getJwks(force = false) {
+    if (!force && this.jwks && Date.now() - this.jwksAt < JWKS_TTL_MS) return this.jwks;
+    if (this.jwksPromise) return this.jwksPromise; // single-flight
+    this.jwksPromise = (async () => {
+      const doc = await fetchJson(this.discovery.jwks_uri);
+      if (!Array.isArray(doc.keys)) throw new OidcError("bad_jwks");
+      this.jwks = doc.keys;
+      this.jwksAt = Date.now();
+      return this.jwks;
+    })();
+    try {
+      return await this.jwksPromise;
+    } finally {
+      this.jwksPromise = null;
+    }
+  }
+
+  async keyFor(kid) {
+    let key = (await this.getJwks()).find((k) => k.kid === kid);
+    if (!key) key = (await this.getJwks(true)).find((k) => k.kid === kid); // one refresh on miss
+    if (!key) throw new OidcError("unknown_kid", kid);
+    if (key.kty !== "EC" || key.crv !== "P-256") throw new OidcError("unsupported_key");
+    return key;
+  }
+
+  /**
+   * Verifies the id_token and returns its claims. Throws OidcError on any problem:
+   * wrong alg, bad signature, wrong iss/aud, expired.
+   */
+  async verifyIdToken(idToken) {
+    if (typeof idToken !== "string") throw new OidcError("no_id_token");
+    const parts = idToken.split(".");
+    if (parts.length !== 3) throw new OidcError("malformed_jwt");
+    const header = b64urlJson(parts[0]);
+    const claims = b64urlJson(parts[1]);
+    if (header.alg !== "ES256") throw new OidcError("bad_alg", String(header.alg));
+    const jwk = await this.keyFor(header.kid);
+    const key = createPublicKey({ key: { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y }, format: "jwk" });
+    const ok = verify(
+      "sha256",
+      Buffer.from(`${parts[0]}.${parts[1]}`),
+      { key, dsaEncoding: "ieee-p1363" },
+      Buffer.from(parts[2], "base64url"),
+    );
+    if (!ok) throw new OidcError("bad_signature");
+
+    const now = Math.floor(Date.now() / 1000);
+    if (claims.iss !== this.discovery.issuer) throw new OidcError("bad_iss");
+    const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+    if (!aud.includes(this.cfg.oidcClientId)) throw new OidcError("bad_aud");
+    if (typeof claims.exp !== "number" || claims.exp <= now - 60) throw new OidcError("expired");
+    if (typeof claims.nbf === "number" && claims.nbf > now + 60) throw new OidcError("not_yet_valid");
+    if (typeof claims.sub !== "string" || !claims.sub) throw new OidcError("no_sub");
+
+    const role = roleFromClaims(claims);
+    const name = claims.preferred_username || claims.name || claims.email || claims.sub;
+    return { sub: claims.sub, name, role, claims };
+  }
+
+  /** Exchange the authorization code (Basic client auth + verifier), return claims. */
+  async exchange(code, verifier) {
+    const form = new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: this.redirectUri(),
+      code_verifier: verifier,
+    });
+    const basic = Buffer.from(
+      `${encodeURIComponent(this.cfg.oidcClientId)}:${encodeURIComponent(this.cfg.oidcClientSecret)}`,
+    ).toString("base64");
+    let tok;
+    try {
+      tok = await fetchJson(this.discovery.token_endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", authorization: `Basic ${basic}` },
+        body: form.toString(),
+      });
+    } catch (e) {
+      throw new OidcError("token_rejected", e.message);
+    }
+    return this.verifyIdToken(tok.id_token);
+  }
+}
+
+/** §5.3 step 6: only Kanidm's `admin` role is honored; anything else is a member. */
+export function roleFromClaims(claims) {
+  const raw = claims.roles ?? claims.groups ?? null;
+  const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[,\s]+/) : [];
+  return list.includes("admin") ? "admin" : "member";
+}
+
+/** PKCE pair (§4.3): 32 random bytes -> 43-char base64url verifier, S256 challenge. */
+export function pkcePair() {
+  const verifier = randomBytes(32).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge };
+}
+
+/** OIDC `next` allowlist (§10.3): `/` or `/r/...`, no scheme, no `//`, quiet charset. */
+export function safeNext(value) {
+  if (typeof value !== "string" || value.length === 0 || value.length > 200) return "/";
+  if (!value.startsWith("/") || value.startsWith("//")) return "/";
+  if (!/^[A-Za-z0-9/_.?=&%-]+$/.test(value)) return "/";
+  const path = value.split("?")[0];
+  // Percent-decoding must not smuggle in a traversal or a scheme: "%2e%2e", "%2F%2F"
+  let decoded;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    return "/";
+  }
+  if (/[\\]/.test(decoded) || decoded.includes("//") || /(^|\/)\.\.(\/|$)/.test(decoded)) return "/";
+  return path.startsWith("/r/") || path === "/" ? value : "/";
+}

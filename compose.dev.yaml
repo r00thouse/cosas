@@ -1,0 +1,41 @@
+# DEVELOPMENT / TEST ONLY. Never deploy this file.
+# Run: docker compose -f compose.yaml -f compose.dev.yaml up --build
+services:
+  app:
+    environment:
+      PORT: 8080
+      PUBLIC_ORIGIN: http://localhost:8080
+      DB_PATH: /data/cosas.dev.db
+      TRUST_PROXY: "0"
+      OIDC_DISCOVERY_URL: http://mock-idp:9000/oauth2/openid/cosas/.well-known/openid-configuration
+      OIDC_ISSUER: http://localhost:9000/oauth2/openid/cosas
+      OIDC_CLIENT_ID: cosas
+      OIDC_CLIENT_SECRET: dev-client-secret
+      SESSION_SECRET: dev-session-secret-that-is-long-enough-000000
+      CODE_SECRET: dev-code-secret-that-is-long-enough-0000000
+      LOG_LEVEL: debug
+    ports: !override
+      - "8080:8080"
+    volumes: !override
+      - ./dev-data:/data
+    depends_on:
+      mock-idp:
+        condition: service_healthy
+
+  mock-idp:
+    build: ./tools/mock-idp
+    environment:
+      # Browser-facing URLs (issuer, authorize) vs app-facing ones (token, jwks):
+      # the browser uses the published port, the app container uses the service name.
+      MOCK_PUBLIC_URL: http://localhost:9000
+      MOCK_INTERNAL_URL: http://mock-idp:9000
+      # Fault injection for the error paths (TESTING.md §5): MOCK_MODE=wrong-secret
+      # makes the token endpoint reject the client, as a wrong Kanidm secret would.
+      MOCK_MODE: ${MOCK_MODE:-ok}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "9000:9000"

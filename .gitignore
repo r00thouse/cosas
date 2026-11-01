@@ -1,0 +1,57 @@
+# --- Secrets and local config -------------------------------------------------
+# compose.yaml declares `env_file: .env`; every real deployment has its own secrets.
+.env
+.env.*
+!.env.example
+# Local overrides people add by hand (compose reads them automatically).
+.env.local
+docker-compose.override.y*ml
+compose.override.y*ml
+
+# --- Data ----------------------------------------------------------------------
+# Live SQLite database (DEV: compose.dev.yaml mounts ./dev-data at /data; PROD:
+# ${DB_DIR}, ./data by default). WAL/SHM files are written next to it.
+data/
+dev-data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+# Backup copies: sqlite3 "... .backup 'backup-YYYY-MM-DD.db'" and dumps (§10.4).
+backup-*.db
+*.dump
+
+# --- Sticker sheets and code lists ----------------------------------------------
+# Output of `node tools/gen-codes.js ... --out codes.txt` and of the offline sheet
+# workflow (§7.5): these list valid stickers, so they must never be committed.
+codes.txt
+codes.counter
+*.svg
+
+# --- Build, deps, logs ----------------------------------------------------------
+# There are no npm dependencies, but never let a stray install get committed.
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+coverage/
+.nyc_output/
+
+# --- Editor and OS noise ---------------------------------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# --- Scratch ---------------------------------------------------------------------
+# Throwaway probe scripts and one-off experiments must not reach commits.
+.tmp/
+tmp/
+*.bak

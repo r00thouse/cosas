@@ -1,0 +1,15 @@
+{
+  "name": "hacklab-cosas",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "gen-codes": "node tools/gen-codes.js",
+    "test": "node --test tools/test/code.test.js",
+    "test:e2e": "node --test tools/test/e2e.test.js"
+  }
+}
