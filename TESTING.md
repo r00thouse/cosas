@@ -238,7 +238,7 @@ The mock IdP stands in for Kanidm and mimics its endpoints
 | `node:sqlite` missing at boot | not an official Node 24 build; install Node 24 from nodejs.org |
 | `setsid not found` | util-linux is missing (rare); run `npm run dev` and `npm run mock-idp` in two shells |
 | `EADDRINUSE` in `.dev/app.log` | an old process survived: `./dev.sh down`, or kill what `./dev.sh ps` reports |
-| I am in the admin group but the app shows "reader" | look at the `auth.login` line in `.dev/app.log` (or `docker compose logs app`): if `groups` is `null` the client lacks the `groups_name` scope, if `group_names` lacks your group compare the exact spelling, if `admin_group` is `null` set `OIDC_ADMIN_GROUP`. Role is baked into the session at login, so log out and back in |
+| I am in the admin group but the app shows "reader" | look at the `auth.login` line in `.dev/app.log` (or `docker compose logs app`): if `groups` is `null` the client neither requested a groups scope (`OIDC_SCOPES`, default `openid profile groups_name`) nor has it in its scope map — check `requested_scopes` vs `granted_scopes` in the same line, if `group_names` lacks your group compare the exact spelling, if `admin_group` is `null` set `OIDC_ADMIN_GROUP`. Role is baked into the session at login, so log out and back in |
 | Login bounces back with an error page | the mock IdP restarted mid-login; just log in again, or `./dev.sh logs idp` |
 | Edits to `.js` under `server/` are ignored | `WATCH=0` was used; `./dev.sh down && ./dev.sh` |
 | 429 on every page for a while | the smoke test's rate-limit check; wait 60 s |

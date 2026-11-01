@@ -596,11 +596,21 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     // Diagnostic line for "I am in the admin group but the app says reader" (§5.3):
     // it names the configured group, the raw `groups` claim, the normalised names and
     // whether userinfo was consulted, so a wrong scope map or a wrong SPN is visible.
+    const diag = roleDiagnostics(claims.claims, cfg.oidcAdminGroup);
     log("info", "auth.login", {
       sub: claims.sub,
       name: claims.name,
       userinfo: claims.sources?.userinfo ?? false,
-      ...roleDiagnostics(claims.claims, cfg.oidcAdminGroup),
+      ...diag,
+      // What we asked for and what the IdP says it granted: the two must overlap on a
+      // groups scope, and a missing `groups` claim is nearly always one of them (§5.7).
+      requested_scopes: cfg.oidcScopes,
+      granted_scopes: claims.claims?.scopes ?? null,
+      ...(diag.admin_group && diag.group_names.length === 0
+        ? {
+            hint: "no groups claim: request a groups scope (OIDC_SCOPES) AND grant it in `kanidm system oauth2 update-scope-map`",
+          }
+        : {}),
     });
     redirect(res, safeNext(typeof tx.next === "string" ? tx.next : "/"), [
       clearTx,

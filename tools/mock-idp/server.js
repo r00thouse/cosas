@@ -108,7 +108,14 @@ function authorize(res, q) {
   if (q.get("code_challenge_method") !== "S256") return text(res, 400, "text/plain", "mock idp: PKCE method must be S256");
 
   const code = randomBytes(24).toString("base64url");
-  codes.set(code, { challenge: q.get("code_challenge"), redirect_uri: redirect, created: Date.now(), user });
+  const scopes = (q.get("scope") || "").split(/\s+/).filter(Boolean);
+  codes.set(code, {
+    challenge: q.get("code_challenge"),
+    redirect_uri: redirect,
+    created: Date.now(),
+    user,
+    scopes,
+  });
   const loc = `${redirect}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
   // Stands in for Kanidm's login + consent page, which a human completes with their
   // Kanidm password in a real deployment: no dialog, straight back to the app, so
@@ -146,12 +153,13 @@ async function tokenBody(req, res, body) {
   const now = Math.floor(Date.now() / 1000);
   const user = tx.user;
   const accessToken = randomBytes(24).toString("base64url");
-  accessTokens.set(accessToken, user);
+  const granted = tx.scopes || [];
+  accessTokens.set(accessToken, { user, scopes: granted });
   json(res, 200, {
     access_token: accessToken,
     token_type: "Bearer",
     expires_in: 300,
-    scope: "openid profile groups",
+    scope: granted.join(" "),
     // Protocol claims only: profile and group claims live in /userinfo, which is where
     // Kanidm may put them (the app merges both, SPEC.md §5.3). The `groups` value is a
     // real group name and NOT literally "admin", and the member user carries an explicit
@@ -172,13 +180,18 @@ createServer((req, res) => {
   if (req.method === "GET" && p === `/oauth2/openid/${CLIENT_ID}/ui/oauth2`) return authorize(res, url.searchParams);
   if (req.method === "GET" && p === `/oauth2/openid/${CLIENT_ID}/userinfo`) {
     const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
-    const user = accessTokens.get(token);
-    if (!user) return json(res, 401, { error: "invalid_token" });
+    const entry = accessTokens.get(token);
+    if (!entry) return json(res, 401, { error: "invalid_token" });
+    const { user, scopes } = entry;
+    // Kanidm only adds the group claim when the client *requested* a group scope, so the
+    // mock does the same: forgetting OIDC_SCOPES=...groups_name fails here, not in prod.
+    const wantsGroups = scopes.some((s) => s === "groups" || s === "groups_name" || s === "groups_spn");
     return json(res, 200, {
       sub: user.sub,
       preferred_username: user.name,
       name: user.name,
-      groups: [user.role === "admin" ? ADMIN_GROUP : "inventory_users"],
+      scopes: scopes.join(" "),
+      ...(wantsGroups ? { groups: [user.role === "admin" ? ADMIN_GROUP : "inventory_users"] } : {}),
       ...(user.role === "admin" ? {} : { roles: ["member"] }),
     });
   }

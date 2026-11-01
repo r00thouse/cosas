@@ -327,6 +327,10 @@ visible without a debugger:
  "admin_group":"cosas_admin","role":"admin"}
 ```
 
+`requested_scopes` and `granted_scopes` come from `OIDC_SCOPES` and from the token's
+own `scopes` claim; when `OIDC_ADMIN_GROUP` is set but no groups arrived, the line also
+carries a `hint`.
+
 Read it as: `groups` is what the IdP actually sent, `group_names` is that after
 normalisation (uuid dropped, `@domain` stripped, lowercased), `admin_group` is
 `OIDC_ADMIN_GROUP` as configured, `role` is the decision. If `groups` is `null` or
@@ -1063,7 +1067,7 @@ Reserved (404): `/i`, `/api`, `/admin`, anything else not listed.
 | `OIDC_DISCOVERY_URL` | `https://idm.hacklab.example/oauth2/openid/cosas/.well-known/openid-configuration` | exact per-client URL |
 | `OIDC_CLIENT_ID` | `cosas` | |
 | `OIDC_CLIENT_SECRET` | `<from kanidm>` | secret auth (confidential client) |
-| `OIDC_SCOPES` | `openid profile` (default) | optional; space-separated |
+| `OIDC_SCOPES` | `openid profile groups_name` (default) | space-separated; must include a groups scope (`groups_name`, `groups` or `groups_spn`) or the token carries no group list |
 | `OIDC_ADMIN_GROUP` | *(unset)* | optional Kanidm group whose members may write (§4.1/§5.3), bare name like `cosas_admin`; works with the `groups`, `groups_name` and `groups_spn` scopes. Unset = anyone the IdP lets in is an admin |
 | `TRUST_PROXY` | `0` / `1` | `1` → trust `X-Forwarded-For` and `X-Forwarded-Proto` |
 | `LOG_LEVEL` | `info` | `debug` in dev |
