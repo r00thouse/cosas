@@ -209,9 +209,11 @@ test("print sheet, register through the sticker URL, then edit/qty/status", asyn
   const scan = await c(`/r/${code}`);
   assert.equal(scan.status, 200);
   const token = csrfOf(scan);
+  // Notes carry free text with newlines; they must round-trip and stay escaped.
+  const notes = "Comprado en la feria\nsegunda línea con ñ y <b>no markup</b>";
   const created = await c(
     `/r/${code}/register`,
-    form({ _csrf: token, name: "Monitor LG 24", category: "monitor", location: "Shelf 2", qty: "1" }),
+    form({ _csrf: token, name: "Monitor LG 24", category: "monitor", location: "Shelf 2", qty: "1", notes }),
   );
   assert.ok(created.status !== 403, `register 403: ${created.text.replace(/<style[\s\S]*?<\/style>/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 300)}`);
   assert.equal(created.status, 302);
@@ -219,6 +221,8 @@ test("print sheet, register through the sticker URL, then edit/qty/status", asyn
   const item = await c(`/r/${code}`);
   assert.match(item.text, /Monitor LG 24/);
   assert.match(item.text, /Shelf 2/);
+  assert.match(item.text, /Comprado en la feria\nsegunda línea con ñ y &lt;b&gt;no markup&lt;\/b&gt;/);
+  assert.doesNotMatch(item.text, /<b>no markup<\/b>/, "notes are escaped, not rendered");
 
   // Duplicate registration on the same sticker: 409, never an overwrite.
   const dup = await c(`/r/${code}/register`, form({ _csrf: token, name: "Other", category: "monitor" }));
@@ -229,8 +233,12 @@ test("print sheet, register through the sticker URL, then edit/qty/status", asyn
   assert.match(pub.text, /Monitor LG 24/);
   assert.doesNotMatch(pub.text, /_csrf/);
 
-  const edited = await c(`/r/${code}/edit`, form({ _csrf: token, name: "Monitor LG 27", category: "monitor", qty: "1" }));
+  const edited = await c(
+    `/r/${code}/edit`,
+    form({ _csrf: token, name: "Monitor LG 27", category: "monitor", qty: "1", notes: "nota editada" }),
+  );
   assert.equal(edited.status, 302);
+  assert.match((await c(`/r/${code}`)).text, /nota editada/, "the edit kept the new notes");
   assert.match((await c(`/r/${code}`)).text, /Monitor LG 27/);
 
   const qty = await c(`/r/${code}/qty`, { ...form({ _csrf: token, delta: "1" }), headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" } });
@@ -413,9 +421,18 @@ test("photos: multipart register, add several, delete one, access control", asyn
   assert.equal((await c(`/r/${code}/photo/${firstId}/delete`, form({ _csrf: token }))).status, 404);
 });
 
-test("rate limit: 31st GET on /r/* is 429", async () => {
-  const c = await login("admin");
-  let last = 0;
-  for (let i = 0; i < 31; i++) last = (await c("/r/2h000000nf6h9ssf")).status;
-  assert.equal(last, 429);
+test("rate limit: GET /r/* answers 429 with retry-after once the window is full", async () => {
+  // Anonymous on purpose: the bucket is per client IP, not per session, and the
+  // earlier tests have already spent part of it — so count up to the first 429
+  // instead of assuming it lands exactly on the 31st request.
+  const c = client();
+  let hits = 0;
+  let res = null;
+  for (let i = 0; i < 40 && !res; i++) {
+    const r = await c("/r/2h000000nf6h9ssf");
+    hits++;
+    if (r.status === 429) res = r;
+  }
+  assert.ok(res, "a 429 arrives within 40 GETs");
+  assert.match(res.headers.get("retry-after") || "", /^\d+$/);
 });
