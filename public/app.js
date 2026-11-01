@@ -292,6 +292,117 @@
     }
   }
 
+  // §8.8: the in-page camera behind "Take photo". The phone's camera app hands back a
+  // full-size photo and a round trip per shot; this keeps the operator on the page,
+  // streams at ~1280x960 and turns each tap of the shutter into a 1200 px JPEG
+  // (~150 KB) that joins the form exactly like a picked file would, so several shots
+  // in a row cost seconds. No secure context, no getUserMedia, no permission or no
+  // camera stream: the label's native `capture` input opens the camera app instead.
+  function wireCamera() {
+    var tpl = document.querySelector("template[data-camera-template]");
+    if (!tpl || !window.isSecureContext || !navigator.mediaDevices ||
+        typeof navigator.mediaDevices.getUserMedia !== "function" || !window.HTMLDialogElement) return;
+    var labels = document.querySelectorAll("label.photo-camera");
+    for (var i = 0; i < labels.length; i++) {
+      labels[i].addEventListener("click", function (ev) {
+        var label = ev.currentTarget;
+        var input = label.querySelector("input[type=file]");
+        if (!input || !input.form || label.dataset.native === "1") return; // fall through to the camera app
+        ev.preventDefault();
+        openCamera(label, input.form);
+      });
+    }
+
+    function msg(name, vars) {
+      var s = tpl.getAttribute("data-msg-" + name) || "";
+      if (vars) for (var k in vars) s = s.split("{" + k + "}").join(String(vars[k]));
+      return s;
+    }
+
+    function openCamera(label, form) {
+      var dialog = tpl.content.firstElementChild.cloneNode(true);
+      document.body.appendChild(dialog);
+      var video = dialog.querySelector("[data-camera-video]");
+      var status = dialog.querySelector("[data-camera-status]");
+      var shots = dialog.querySelector("[data-camera-shots]");
+      var shutter = dialog.querySelector("[data-camera-shutter]");
+      var flash = dialog.querySelector("[data-camera-flash]");
+      var previews = form.querySelector("[data-photo-previews]");
+      var stream = null;
+
+      function count() {
+        status.textContent = msg("count", { n: scaled, max: MAX_PHOTOS });
+        shutter.disabled = !stream || scaled >= MAX_PHOTOS;
+      }
+
+      function close() {
+        if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+        stream = null;
+        if (dialog.open) dialog.close();
+        dialog.remove();
+      }
+
+      function snap() {
+        if (!stream || scaled >= MAX_PHOTOS || !video.videoWidth) return;
+        var scale = Math.min(1, MAX_EDGE / Math.max(video.videoWidth, video.videoHeight));
+        var canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+        canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+        canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+        var data = null;
+        try {
+          data = canvas.toDataURL("image/jpeg", 0.75);
+        } catch (e) {
+          data = null;
+        }
+        if (!data || data.length < 100) return;
+        addHidden(form, data);
+        scaled++;
+        if (previews) showPreview(previews, data);
+        showPreview(shots, data);
+        shots.scrollLeft = shots.scrollWidth;
+        flash.classList.remove("on");
+        void flash.offsetWidth; // restart the animation
+        flash.classList.add("on");
+        count();
+      }
+
+      shutter.addEventListener("click", snap);
+      dialog.querySelector("[data-camera-done]").addEventListener("click", close);
+      dialog.addEventListener("cancel", function (ev) {
+        ev.preventDefault();
+        close();
+      });
+      dialog.showModal();
+      count();
+
+      navigator.mediaDevices
+        .getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 960 } },
+          audio: false,
+        })
+        .then(function (s) {
+          if (!dialog.isConnected) {
+            s.getTracks().forEach(function (t) { t.stop(); });
+            return;
+          }
+          stream = s;
+          video.srcObject = s;
+          var playing = video.play && video.play();
+          if (playing && playing.catch) playing.catch(function () {});
+          count();
+        })
+        .catch(function () {
+          // Denied, no camera, or busy: hand over to the phone's camera app, which
+          // needs no browser permission. The label remembers, so the next tap goes
+          // straight there instead of asking again.
+          close();
+          label.dataset.native = "1";
+          label.click();
+        });
+    }
+  }
+
   // §8.2: the category and location fields suggest the values already in use. The
   // <datalist> stays in the markup for browsers without JS; this list is the same
   // data, but tappable on a phone, where the native datalist is hard to hit.
@@ -401,5 +512,6 @@
   wireQty();
   wireCopy();
   wirePhoto();
+  wireCamera();
   wireCombo();
 })();

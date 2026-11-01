@@ -898,6 +898,14 @@ so the panel stays a grid and the export stays small, not for storage reasons.
   `multiple`. Same pipeline for both (crop, downscale, preview, `photo_data`), no new
   dependency, and without JS they still post. `[Take photo]` is hidden on
   `(hover: hover) and (pointer: fine)` screens, where it would be a second file picker.
+- **In-page camera.** With JS, a secure context and `getUserMedia`, `[Take photo]`
+  opens a full-screen `<dialog class="camera">` instead of the camera app: the rear
+  camera streams at ~1280×960, `[Take picture]` draws the frame at `MAX_EDGE`
+  (1200 px) as JPEG 0.75 (~150 KB), adds it as a `photo_data` field with a preview,
+  and stays open for the next shot (counter "n of 8", no crop step); `[Done]` stops
+  the stream. Any failure to get a stream (denied, no camera, busy) closes the dialog
+  and opens the native `capture` input, which needs no browser permission; the
+  button remembers that for the rest of the page.
 - **Who can see it.** `GET /photo/:code/:photo` is a member route, like every other
   write. Anonymous visitors never get a photo URL, so a photographed serial number
   cannot leak through the public view. Images are sent with

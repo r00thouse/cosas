@@ -308,7 +308,25 @@ function photoPickers(c, id) {
   return html`<div class="photo-pick">
 <label class="button primary photo-camera"><input class="sr-only" name="photo" type="file" accept="image/*" capture="environment">${t("photo.take")}</label>
 <label class="button photo-files"><input class="sr-only" id="${id}" name="photo" type="file" accept="image/jpeg,image/png,image/webp" multiple>${t("photo.choose")}</label>
-</div>`;
+</div>
+${cameraTemplate(c)}`;
+}
+
+/** The in-page camera (§8.8): cloned by app.js when "Take photo" can open the camera
+ *  itself (secure context + getUserMedia); otherwise the native capture input runs. */
+function cameraTemplate(c) {
+  const { t } = c;
+  return html`<template data-camera-template data-msg-count="${t("camera.count")}">
+<dialog class="camera">
+<div class="camera-stage"><video data-camera-video playsinline muted autoplay></video><div class="camera-flash" data-camera-flash></div></div>
+<p class="camera-status" data-camera-status aria-live="polite"></p>
+<div class="camera-shots" data-camera-shots></div>
+<div class="camera-actions">
+<button type="button" class="primary camera-shutter" data-camera-shutter disabled>${t("camera.shutter")}</button>
+<button type="button" data-camera-done>${t("camera.done")}</button>
+</div>
+</dialog>
+</template>`;
 }
 
 /** The sticker for this item's current code (§8.3): QR + text + SVG download. */
