@@ -100,6 +100,7 @@ OIDC_DISCOVERY_URL=$IDP_URL/oauth2/openid/cosas/.well-known/openid-configuration
 OIDC_ISSUER=$IDP_URL/oauth2/openid/cosas
 OIDC_CLIENT_ID=cosas
 OIDC_CLIENT_SECRET=dev-client-secret
+OIDC_ADMIN_GROUP=${OIDC_ADMIN_GROUP:-}
 SESSION_SECRET=dev-session-secret-that-is-long-enough-000000
 CODE_SECRET=dev-code-secret-that-is-long-enough-0000000
 LOG_LEVEL=${LOG_LEVEL:-debug}

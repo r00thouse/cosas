@@ -3,7 +3,7 @@
 // roles turned every member into a reader.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { groupNames, roleFromClaims } from "../../oidc.js";
+import { groupNames, mergeClaims, roleDiagnostics, roleFromClaims } from "../../oidc.js";
 import { loadConfig } from "../../config.js";
 
 test("the v1 default: anyone the IdP let in is an admin", () => {
@@ -56,4 +56,31 @@ test("groupNames drops uuids and keeps bare names", () => {
 test("config reads OIDC_ADMIN_GROUP and defaults to unset", () => {
   assert.equal(loadConfig({}).oidcAdminGroup, "");
   assert.equal(loadConfig({ OIDC_ADMIN_GROUP: " cosas_admin " }).oidcAdminGroup, "cosas_admin");
+});
+
+test("userinfo claims fill the gaps a Kanidm id_token leaves (§5.3)", () => {
+  const idToken = { iss: "https://idm", aud: "cosas", sub: "u1", exp: 1, iat: 0 };
+  const merged = mergeClaims(idToken, { sub: "u1", name: "alice", groups: ["cosas_admin@idm.example.com"] });
+  assert.deepEqual(merged.groups, ["cosas_admin@idm.example.com"]);
+  assert.equal(merged.name, "alice");
+  // Protocol fields come from the verified id_token, never from the userinfo response.
+  const hostile = mergeClaims(idToken, { iss: "https://evil", aud: "other", sub: "other", exp: 2 });
+  assert.equal(hostile.iss, "https://idm");
+  assert.equal(hostile.aud, "cosas");
+  assert.equal(hostile.sub, "u1");
+  assert.equal(hostile.exp, 1);
+  // A missing userinfo response changes nothing.
+  assert.equal(mergeClaims(idToken, null), idToken);
+});
+
+test("the login log names the claim source, the group and the decision", () => {
+  const d = roleDiagnostics({ sub: "u1", groups: ["inventory_users@idm.example.com"] }, "cosas_admin");
+  assert.deepEqual(d, {
+    claims: ["groups", "sub"],
+    roles: null,
+    groups: ["inventory_users@idm.example.com"],
+    group_names: ["inventory_users"],
+    admin_group: "cosas_admin",
+    role: "member",
+  });
 });

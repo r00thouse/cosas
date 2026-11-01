@@ -155,9 +155,7 @@ export class OidcClient {
     if (typeof claims.nbf === "number" && claims.nbf > now + 60) throw new OidcError("not_yet_valid");
     if (typeof claims.sub !== "string" || !claims.sub) throw new OidcError("no_sub");
 
-    const role = roleFromClaims(claims, this.cfg.oidcAdminGroup);
-    const name = claims.preferred_username || claims.name || claims.email || claims.sub;
-    return { sub: claims.sub, name, role, claims };
+    return { sub: claims.sub, claims };
   }
 
   /** Exchange the authorization code (Basic client auth + verifier), return claims. */
@@ -182,7 +180,33 @@ export class OidcClient {
     } catch (e) {
       throw new OidcError("token_rejected", e.message);
     }
-    return this.verifyIdToken(tok.id_token);
+    const verified = await this.verifyIdToken(tok.id_token);
+    // Kanidm may put groups/name in the userinfo response instead of the id_token. Read
+    // both and let userinfo fill the gaps; a failure here must not break the login.
+    const info = await this.tryUserinfo(tok.access_token);
+    const claims = mergeClaims(verified.claims, info);
+    return {
+      sub: verified.sub,
+      name: claims.preferred_username || claims.name || claims.email || claims.sub,
+      role: roleFromClaims(claims, this.cfg.oidcAdminGroup),
+      claims,
+      sources: { userinfo: Boolean(info) },
+    };
+  }
+
+  /** userinfo is optional: missing endpoint, bad token or a 5xx all mean "no extra claims". */
+  async tryUserinfo(accessToken) {
+    if (!accessToken) return null;
+    try {
+      await this.ensureDiscovery();
+      if (!this.discovery.userinfo_endpoint) return null;
+      return await fetchJson(this.discovery.userinfo_endpoint, {
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+    } catch (e) {
+      this.log("warn", "oidc.userinfo_failed", { error: e.message });
+      return null;
+    }
   }
 }
 
@@ -209,6 +233,35 @@ export function roleFromClaims(claims, adminGroup = "") {
     return groupNames(claims.groups).includes(adminGroup.trim().toLowerCase()) ? "admin" : "member";
   }
   return "admin";
+}
+
+/**
+ * id_token claims win for the protocol fields; userinfo fills in profile/group claims.
+ * Real Kanidm deployments differ in which of the two carries `groups` (SPEC.md §5.3).
+ */
+export function mergeClaims(idClaims, infoClaims) {
+  const protocolFields = new Set(["iss", "aud", "exp", "iat", "nbf", "nonce", "sub", "azp"]);
+  if (!infoClaims) return idClaims;
+  const merged = { ...idClaims };
+  for (const [key, value] of Object.entries(infoClaims)) {
+    if (protocolFields.has(key)) continue;
+    if (value === undefined || value === null || value === "") continue;
+    merged[key] = value;
+  }
+  return merged;
+}
+
+/** Everything needed to explain a role decision in the logs, and nothing secret. */
+export function roleDiagnostics(claims, adminGroup = "") {
+  const groups = claims?.groups ?? null;
+  return {
+    claims: Object.keys(claims || {}).sort(),
+    roles: claims?.roles ?? null,
+    groups,
+    group_names: groupNames(groups),
+    admin_group: adminGroup || null,
+    role: roleFromClaims(claims, adminGroup),
+  };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

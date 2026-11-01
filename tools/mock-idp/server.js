@@ -41,8 +41,10 @@ const privateKey = createPrivateKey({ key: ecJwk, format: "jwk" });
 const publicKey = createPublicKey({ key: ecJwk, format: "jwk" });
 const jwk = { ...publicKey.export({ format: "jwk" }), kid: "mock-1", alg: "ES256", use: "sig" };
 
-/** code -> { challenge, redirect_uri, created } — in memory, single use, 60 s TTL */
+/** code -> { challenge, redirect_uri, created, user } — in memory, single use, 60 s TTL */
 const codes = new Map();
+/** access_token -> user, so /userinfo can serve the profile claims like Kanidm does. */
+const accessTokens = new Map();
 
 const b64url = (buf) => Buffer.from(buf).toString("base64url");
 const json = (res, status, body) => {
@@ -143,25 +145,18 @@ async function tokenBody(req, res, body) {
 
   const now = Math.floor(Date.now() / 1000);
   const user = tx.user;
+  const accessToken = randomBytes(24).toString("base64url");
+  accessTokens.set(accessToken, user);
   json(res, 200, {
-    access_token: randomBytes(24).toString("base64url"),
+    access_token: accessToken,
     token_type: "Bearer",
     expires_in: 300,
-    scope: "openid profile",
-    id_token: jwt({
-      iss: ISSUER,
-      sub: user.sub,
-      aud: CLIENT_ID,
-      iat: now,
-      exp: now + 300,
-      preferred_username: user.name,
-      name: user.name,
-      // Shape it like a real Kanidm token: a group name that is NOT literally "admin".
-      // The member user additionally carries an explicit `roles` claim, which is how the
-      // read-only path is forced even without OIDC_ADMIN_GROUP (SPEC.md §4.1).
-      groups: [user.role === "admin" ? ADMIN_GROUP : "inventory_users"],
-      ...(user.role === "admin" ? {} : { roles: ["member"] }),
-    }),
+    scope: "openid profile groups",
+    // Protocol claims only: profile and group claims live in /userinfo, which is where
+    // Kanidm may put them (the app merges both, SPEC.md §5.3). The `groups` value is a
+    // real group name and NOT literally "admin", and the member user carries an explicit
+    // `roles` claim — that is how the read-only path is forced (SPEC.md §4.1).
+    id_token: jwt({ iss: ISSUER, sub: user.sub, aud: CLIENT_ID, iat: now, exp: now + 300 }),
   });
 }
 
@@ -175,6 +170,18 @@ createServer((req, res) => {
   }
   if (req.method === "GET" && p === `/oauth2/openid/${CLIENT_ID}/public_key.jwk`) return json(res, 200, { keys: [jwk] });
   if (req.method === "GET" && p === `/oauth2/openid/${CLIENT_ID}/ui/oauth2`) return authorize(res, url.searchParams);
+  if (req.method === "GET" && p === `/oauth2/openid/${CLIENT_ID}/userinfo`) {
+    const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+    const user = accessTokens.get(token);
+    if (!user) return json(res, 401, { error: "invalid_token" });
+    return json(res, 200, {
+      sub: user.sub,
+      preferred_username: user.name,
+      name: user.name,
+      groups: [user.role === "admin" ? ADMIN_GROUP : "inventory_users"],
+      ...(user.role === "admin" ? {} : { roles: ["member"] }),
+    });
+  }
   if (req.method === "POST" && p === "/oauth2/token") {
     let body = "";
     req.on("data", (c) => (body += c));

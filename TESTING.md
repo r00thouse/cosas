@@ -115,8 +115,11 @@ bug report can just say "12.7 fails".
 2. **Language** (12.3) — click *Español*; everything switches and stays Spanish after
    a reload. Switch back.
 3. **Login** (12.4) — click *Log in*. You bounce through the mock IdP (no form) and come
-   back to the app as `mockadmin`, with the admin role (the role comes from the IdP's
-   groups claim, so `?as=member` gives a read-only session instead).
+   back to the app as `mockadmin`, with the admin role (the role comes from the
+   `groups` claim served by the IdP's userinfo endpoint, so `?as=member` gives a
+   read-only session instead). The `auth.login` line in `.dev/app.log` shows the
+   claims and the decision; `OIDC_ADMIN_GROUP=cosas_admin ./dev.sh up` makes the
+   group the only source of the role.
    Logging out is local: it clears the app session, with no round trip to the IdP.
 4. **Print stickers** (12.6) — open `/codes?n=5`. Five stickers appear; *Print*
    (`Ctrl+P`) shows 4 × 11 stickers per A4 page and nothing else — no header, nav,
@@ -235,6 +238,7 @@ The mock IdP stands in for Kanidm and mimics its endpoints
 | `node:sqlite` missing at boot | not an official Node 24 build; install Node 24 from nodejs.org |
 | `setsid not found` | util-linux is missing (rare); run `npm run dev` and `npm run mock-idp` in two shells |
 | `EADDRINUSE` in `.dev/app.log` | an old process survived: `./dev.sh down`, or kill what `./dev.sh ps` reports |
+| I am in the admin group but the app shows "reader" | look at the `auth.login` line in `.dev/app.log` (or `docker compose logs app`): if `groups` is `null` the client lacks the `groups_name` scope, if `group_names` lacks your group compare the exact spelling, if `admin_group` is `null` set `OIDC_ADMIN_GROUP`. Role is baked into the session at login, so log out and back in |
 | Login bounces back with an error page | the mock IdP restarted mid-login; just log in again, or `./dev.sh logs idp` |
 | Edits to `.js` under `server/` are ignored | `WATCH=0` was used; `./dev.sh down && ./dev.sh` |
 | 429 on every page for a while | the smoke test's rate-limit check; wait 60 s |

@@ -264,19 +264,6 @@ from a template.
    uuids), so all three scopes work; `groups_name` is the recommended one because
    then `OIDC_ADMIN_GROUP` is literally the group name.
 
-### 5.6 Escaping (mandatory)
-
-- The `html` tagged template **escapes every interpolated value** (`& < > " '`).
-- The only way to emit trusted markup is an explicit `raw(trustedString)` call.
-  `raw()` may appear in: layout chrome, and `dangerously`-named spots only — grep for
-  `raw(` as a review step; every occurrence must be justified in a comment.
-- Attributes are always double-quoted. `href` values come only from `url(path)`
-  (internal paths) or `PUBLIC_ORIGIN`; user-controlled URLs are never rendered.
-- `data-*` attributes used by `public/app.js` are escaped the same way; the JS reads
-  them with `dataset` and never uses `innerHTML`.
-- Multi-line user text (`notes`) is rendered inside `<p>`/`<pre>` **text** nodes,
-  never with `<br>` injection.
-
 ### 5.4 `/r/<code>` protections
 
 - The **sticker code is a capability but not an authorization**: reading a bound
@@ -305,6 +292,46 @@ cheap to reject (§5.4), not what makes guessing hard. The accepted residual ris
 leak a code; that grants read of one item's public view, not write.
 
 ---
+
+### 5.6 Escaping (mandatory)
+
+- The `html` tagged template **escapes every interpolated value** (`& < > " '`).
+- The only way to emit trusted markup is an explicit `raw(trustedString)` call.
+  `raw()` may appear in: layout chrome, and `dangerously`-named spots only — grep for
+  `raw(` as a review step; every occurrence must be justified in a comment.
+- Attributes are always double-quoted. `href` values come only from `url(path)`
+  (internal paths) or `PUBLIC_ORIGIN`; user-controlled URLs are never rendered.
+- `data-*` attributes used by `public/app.js` are escaped the same way; the JS reads
+  them with `dataset` and never uses `innerHTML`.
+- Multi-line user text (`notes`) is rendered inside `<p>`/`<pre>` **text** nodes,
+  never with `<br>` injection.
+
+### 5.7 Profile and group claims from userinfo
+
+Kanidm clients differ in where the profile claims arrive: some deployments put
+`groups` in the id_token, others only in the userinfo response. After the id_token
+verifies, `exchange()` does `GET <userinfo_endpoint>` with the access token and merges
+the result: **id_token wins for the protocol fields** (`iss`, `aud`, `sub`, `exp`,
+`iat`, `nbf`, `nonce`, `azp`), userinfo fills in `groups`, `name`,
+`preferred_username`, `email`, `roles`. A missing endpoint, an expired token or a 5xx
+logs `oidc.userinfo_failed` and continues with the id_token claims alone, so a broken
+userinfo can never block a login.
+
+Every successful login writes one diagnostic line, at `info`, so a role surprise is
+visible without a debugger:
+
+```json
+{"level":"info","msg":"auth.login","sub":"…","name":"alice","userinfo":true,
+ "claims":["aud","exp","groups","iss","name","sub"],"roles":null,
+ "groups":["cosas_admin@idm.example.com"],"group_names":["cosas_admin"],
+ "admin_group":"cosas_admin","role":"admin"}
+```
+
+Read it as: `groups` is what the IdP actually sent, `group_names` is that after
+normalisation (uuid dropped, `@domain` stripped, lowercased), `admin_group` is
+`OIDC_ADMIN_GROUP` as configured, `role` is the decision. If `groups` is `null` or
+`[]`, the scope map is wrong; if `admin_group` is `null`, the variable is unset; if
+`group_names` does not contain it, compare the exact spelling.
 
 ## 6. Data model
 
@@ -1132,12 +1159,16 @@ OIDC_DISCOVERY_URL=http://localhost:9010/oauth2/openid/cosas/.well-known/openid-
 OIDC_ISSUER=http://localhost:9010/oauth2/openid/cosas
 OIDC_CLIENT_ID=cosas
 OIDC_CLIENT_SECRET=dev-client-secret
+OIDC_ADMIN_GROUP=
 SESSION_SECRET=dev-session-secret-that-is-long-enough-000000
 CODE_SECRET=dev-code-secret-that-is-long-enough-0000000
 LOG_LEVEL=debug
 ```
 
-Both mock URLs are `localhost:9010`, because the app and the IdP share a host; in
+`OIDC_ADMIN_GROUP` is written from the environment, so
+`OIDC_ADMIN_GROUP=cosas_admin ./dev.sh up` exercises the read-only split locally (the
+mock sends `cosas_admin` or `inventory_users`). Both mock URLs are `localhost:9010`,
+because the app and the IdP share a host; in
 containers the app reached the IdP by service name instead. Nothing is built: a
 server-side edit restarts `node --watch`, and `public/*` changes are served from
 disk and need only a browser reload. `./dev.sh down` stops both processes (they are

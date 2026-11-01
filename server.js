@@ -18,7 +18,7 @@ import { boundaryOf, parseMultipart, MultipartError } from "./multipart.js";
 import { MAX_PHOTO, parseDataUrl, savePhoto, removePhoto, photoFile, sniff, collectGarbage } from "./photos.js";
 import { makeT, pickLang, LANGS } from "./i18n.js";
 import { sign, unsign, csrfFor, csrfValid, newSecret, clientIp, createLimiter } from "./security.js";
-import { OidcClient, pkcePair, safeNext, OidcError } from "./oidc.js";
+import { OidcClient, pkcePair, roleDiagnostics, safeNext, OidcError } from "./oidc.js";
 import * as V from "./views.js";
 import { html } from "./html.js";
 
@@ -593,7 +593,15 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
       err.reason = e instanceof OidcError ? e.kind : "exchange_failed";
       throw err;
     }
-    log("info", "auth.login", { sub: claims.sub, role: claims.role });
+    // Diagnostic line for "I am in the admin group but the app says reader" (§5.3):
+    // it names the configured group, the raw `groups` claim, the normalised names and
+    // whether userinfo was consulted, so a wrong scope map or a wrong SPN is visible.
+    log("info", "auth.login", {
+      sub: claims.sub,
+      name: claims.name,
+      userinfo: claims.sources?.userinfo ?? false,
+      ...roleDiagnostics(claims.claims, cfg.oidcAdminGroup),
+    });
     redirect(res, safeNext(typeof tx.next === "string" ? tx.next : "/"), [
       clearTx,
       setCookie(COOKIE.session, sessions.issue(claims), { maxAge: SESSION_TTL_S }),
