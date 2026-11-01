@@ -2,6 +2,7 @@
 dev-data
 .dev
 data
+photos
 node_modules
 *.db
 *.db-wal

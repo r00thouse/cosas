@@ -539,7 +539,7 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     });
   }
 
-  function handleLogin(req, res, url) {
+  async function handleLogin(req, res, url) {
     const next = safeNext(url.searchParams.get("next") || "/");
     const { verifier, challenge } = pkcePair();
     const state = newSecret(24);
@@ -550,7 +550,9 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
       nonce: newSecret(8),
       exp: Math.floor(now() / 1000) + TX_TTL_S,
     });
-    redirect(res, oidc.authorizeUrl(state, challenge), [setCookie(COOKIE.tx, tx, { maxAge: TX_TTL_S })]);
+    redirect(res, await oidc.authorizeUrl(state, challenge), [
+      setCookie(COOKIE.tx, tx, { maxAge: TX_TTL_S }),
+    ]);
   }
 
   async function handleCallback(req, res, url) {

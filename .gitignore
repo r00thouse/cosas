@@ -9,9 +9,12 @@ docker-compose.override.y*ml
 compose.override.y*ml
 
 # --- Data ----------------------------------------------------------------------
-# Live SQLite database (DEV: ./dev-data, written by `./dev.sh up`; PROD: ${DB_DIR},
-# ./data by default). WAL/SHM files are written next to it.
+# Live SQLite database and item photos, both relative to this directory so a copy of
+# the repo is a complete backup (DEV: ./dev-data, written by `./dev.sh up`;
+# PROD: ./data and ./photos, the compose.yaml bind mounts). WAL/SHM files are written
+# next to the database.
 data/
+photos/
 dev-data/
 # Dev state written by ./dev.sh: generated env (dev secrets), logs, pid files.
 .dev/

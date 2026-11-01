@@ -41,22 +41,44 @@ export class OidcClient {
     this.cfg = cfg;
     this.log = log;
     this.discovery = null;
+    this.discoveryPromise = null;
     this.jwks = null;
     this.jwksAt = 0;
     this.jwksPromise = null;
   }
 
   async init() {
-    const doc = await fetchJson(this.cfg.oidcDiscoveryUrl);
-    for (const k of ["issuer", "authorization_endpoint", "token_endpoint", "jwks_uri"]) {
-      if (typeof doc[k] !== "string" || !doc[k]) throw new OidcError("bad_discovery", k);
+    // `skipDiscoveryCheck` (env SKIP_DISCOVERY_CHECK=1) boots without an IdP: the
+    // fetch is deferred to the first /login instead of killing the process (§10.1).
+    if (this.cfg.skipDiscoveryCheck) {
+      this.log("warn", "oidc.discovery_skipped", { url: this.cfg.oidcDiscoveryUrl });
+      return;
     }
-    if (this.cfg.oidcIssuer && doc.issuer !== this.cfg.oidcIssuer) {
-      throw new OidcError("issuer_mismatch", `expected ${this.cfg.oidcIssuer}, got ${doc.issuer}`);
+    await this.ensureDiscovery();
+  }
+
+  /** Fetch and validate the discovery document, once. */
+  async ensureDiscovery() {
+    if (this.discovery) return this.discovery;
+    if (this.discoveryPromise) return this.discoveryPromise;
+    this.discoveryPromise = (async () => {
+      const doc = await fetchJson(this.cfg.oidcDiscoveryUrl);
+      for (const k of ["issuer", "authorization_endpoint", "token_endpoint", "jwks_uri"]) {
+        if (typeof doc[k] !== "string" || !doc[k]) throw new OidcError("bad_discovery", k);
+      }
+      if (this.cfg.oidcIssuer && doc.issuer !== this.cfg.oidcIssuer) {
+        throw new OidcError("issuer_mismatch", `expected ${this.cfg.oidcIssuer}, got ${doc.issuer}`);
+      }
+      this.discovery = doc;
+      await this.getJwks();
+      this.log("info", "oidc.discovery", { issuer: doc.issuer });
+      return doc;
+    })();
+    try {
+      return await this.discoveryPromise;
+    } finally {
+      this.discoveryPromise = null;
     }
-    this.discovery = doc;
-    await this.getJwks();
-    this.log("info", "oidc.discovery", { issuer: doc.issuer });
   }
 
   redirectUri() {
@@ -64,7 +86,8 @@ export class OidcClient {
   }
 
   /** The authorization URL; `state` and `challenge` come from the oidc_tx cookie. */
-  authorizeUrl(state, challenge) {
+  async authorizeUrl(state, challenge) {
+    await this.ensureDiscovery();
     const u = new URL(this.discovery.authorization_endpoint);
     u.searchParams.set("response_type", "code");
     u.searchParams.set("client_id", this.cfg.oidcClientId);
@@ -77,6 +100,7 @@ export class OidcClient {
   }
 
   async getJwks(force = false) {
+    await this.ensureDiscovery();
     if (!force && this.jwks && Date.now() - this.jwksAt < JWKS_TTL_MS) return this.jwks;
     if (this.jwksPromise) return this.jwksPromise; // single-flight
     this.jwksPromise = (async () => {
@@ -123,6 +147,7 @@ export class OidcClient {
     if (!ok) throw new OidcError("bad_signature");
 
     const now = Math.floor(Date.now() / 1000);
+    await this.ensureDiscovery();
     if (claims.iss !== this.discovery.issuer) throw new OidcError("bad_iss");
     const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
     if (!aud.includes(this.cfg.oidcClientId)) throw new OidcError("bad_aud");
@@ -146,6 +171,7 @@ export class OidcClient {
     const basic = Buffer.from(
       `${encodeURIComponent(this.cfg.oidcClientId)}:${encodeURIComponent(this.cfg.oidcClientSecret)}`,
     ).toString("base64");
+    await this.ensureDiscovery();
     let tok;
     try {
       tok = await fetchJson(this.discovery.token_endpoint, {

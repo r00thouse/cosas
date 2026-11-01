@@ -10,9 +10,15 @@ services:
     environment:
       PORT: 8080
       DB_PATH: /data/cosas.db
+      PHOTO_DIR: /photos
       TRUST_PROXY: "1"
+    # Two host directories on purpose (both bind mounts, never named volumes): the
+    # database and the image files can then be backed up by different means. They are
+    # relative to this directory so that copying the repo copies every byte the app
+    # needs. Both must be writable by uid 1000 (the image's `node` user).
     volumes: !override
       - ${DB_DIR:-./data}:/data
+      - ${PHOTO_DIR:-./photos}:/photos
     # published only on loopback in prod; the dev overlay REPLACES this list with
     # ["8080:8080"] (Compose appends ports across files unless overridden with !reset)
     ports: !override

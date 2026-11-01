@@ -762,7 +762,8 @@ code and returns the item with a fresh sticker.
 A photo is optional decoration on an item; the row is still the source of truth.
 
 - **Storage.** Bytes are files on disk in `PHOTO_DIR` (default
-  `dirname(DB_PATH)/photos`, i.e. `/data/photos` in the container), named
+  `dirname(DB_PATH)/photos`; `compose.yaml` overrides it to `/photos`, its own bind
+  mount), named
   `<item_id>-<12 hex>.<ext>` with mode `0600`. `items.photo` stores only that file
   name (`TEXT NOT NULL DEFAULT ''`; migration `003_photo`). No image library, no
   thumbnails, no EXIF stripping — the server only sniffs magic bytes.
@@ -1003,7 +1004,7 @@ Reserved (404): `/i`, `/api`, `/admin`, anything else not listed.
 | `PORT` | `8080` | |
 | `PUBLIC_ORIGIN` | `https://cosas.hacklab.example` | no trailing slash. Drives QR URLs, redirect URI, cookie `Secure`. |
 | `DB_PATH` | `/data/cosas.db` | inside the container |
-| `PHOTO_DIR` | *(optional)* | where §8.8 image files live; defaults to `dirname(DB_PATH)/photos` (`/data/photos`), so the existing `/data` volume already covers it |
+| `PHOTO_DIR` | *(optional)* | where §8.8 image files live; defaults to `dirname(DB_PATH)/photos`. `compose.yaml` sets `/photos` and bind-mounts `${PHOTO_DIR:-./photos}` there, so the database and the images can be backed up on separate schedules |
 | `SESSION_SECRET` | `<openssl rand -base64 48>` | |
 | `CODE_SECRET` | `<openssl rand -base64 48>` | **must never change** or all printed stickers die (codes are HMAC'd with it) |
 | `OIDC_DISCOVERY_URL` | `https://idm.hacklab.example/oauth2/openid/cosas/.well-known/openid-configuration` | exact per-client URL |
@@ -1032,9 +1033,13 @@ services:
     environment:
       PORT: 8080
       DB_PATH: /data/cosas.db
+      PHOTO_DIR: /photos
       TRUST_PROXY: "1"
+    # Two bind mounts, never named volumes: the database and the image files can live
+    # on different disks and be backed up separately.
     volumes:
       - ${DB_DIR:-./data}:/data
+      - ${PHOTO_DIR:-./photos}:/photos
     ports:
       - "127.0.0.1:8080:8080"   # loopback only in prod; the dev overlay replaces it
     healthcheck:
@@ -1043,6 +1048,11 @@ services:
       timeout: 5s
       retries: 3
 ```
+
+Both host directories must be writable by **uid 1000** (the image's `node` user);
+compose creates a missing host directory as root, so `mkdir -p data photos &&
+sudo chown 1000:1000 data photos` once is enough, and a wrong owner shows up as
+`EACCES` in the logs on the first photo upload.
 
 **Deployment behind the existing nginx** (one block, documented in README). Because
 this block **overwrites** XFF, the app only ever sees one entry, so the §5.4 "last
@@ -1101,9 +1111,15 @@ onto the login flow.
 
 ### 10.4 Persistence, backup, reset
 
-- The DB is one file. Backup from the host:
-  `sqlite3 "$DB_DIR/cosas.db" ".backup '$DB_DIR/backup-$(date +%F).db'"`
-  (the app is the single writer, so `.backup` is consistent).
+- **Everything the app needs lives in this directory**: `./data/cosas.db`,
+  `./photos/` and `.env` (plus the code). Nothing is written outside it — no named
+  Docker volumes, no paths in `$HOME`, no log files. So `cp -a` (or `tar`) of the
+  checked-out directory, minus `node_modules/`, is a complete backup, and restoring
+  it on another machine is "copy it back, `docker compose up -d --build`".
+- The DB is one file. Hot backup from the host:
+  `sqlite3 data/cosas.db ".backup 'data/backup-$(date +%F).db'"`
+  (the app is the single writer, so `.backup` is consistent). Copy `photos/` in the
+  same breath: rows and image files are only meaningful together.
 - `CODE_SECRET` goes into the password manager *first*, before the first sticker.
   A lost `CODE_SECRET` means every printed sticker is dead (recoverable only by
   re-scanning and manually rebinding each item).
@@ -1123,14 +1139,14 @@ COPY server.js oidc.js code.js store.js i18n.js html.js qrcode.js ./
 COPY db ./db
 COPY public ./public
 COPY tools/gen-codes.js ./tools/
-RUN mkdir -p /data
+RUN mkdir -p /data /photos
 USER node
 EXPOSE 8080
 CMD ["node", "server.js"]
 ```
 
 The image installs exactly the two runtime dependencies from the lockfile and
-nothing else (no devDependencies exist). `.dockerignore`: `.git`, `dev-data`, `data`,
+nothing else (no devDependencies exist). `.dockerignore`: `.git`, `dev-data`, `data`, `photos`,
 `node_modules`, `*.db`, `.env*`, `SPEC-*.md`, `codes.txt`, `tools/mock-idp`,
 `tools/test`. The dev mock IdP (`tools/mock-idp/`) is **not** copied into the app
 image.

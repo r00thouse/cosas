@@ -6,7 +6,8 @@ Barebones inventory for a hacklab / hackerspace.
 
 ## Summary
 
-- Node 24, one SQLite file, **zero npm dependencies**, no framework, no ORM.
+- Node 24, one SQLite file, **two npm dependencies** (QR encode/decode only), no
+  framework, no ORM, no bundler, no build step.
 - Login via Kanidm (OIDC, confidential client with secret, PKCE S256, ES256).
 - Every logged-in user is an admin (for now).
 - QR stickers are generated freely and pre-printed; a code is bound to an item when
@@ -44,7 +45,7 @@ How to test it, layer by layer, is in [`TESTING.md`](TESTING.md).
 | [`SPEC.md`](SPEC.md) | The complete spec: routes, schema, OIDC, codes/QR, i18n, ops, acceptance checklist, build order, decision log |
 | [`TESTING.md`](TESTING.md) | Manual test guide for the local platform |
 | [`dev.sh`](dev.sh) | Powers on / off / resets / smoke-tests the local platform (plain node, no build) |
-| [`compose.yaml`](compose.yaml) | Production-shaped: app only, loopback port, `${DB_DIR}` data mount |
+| [`compose.yaml`](compose.yaml) | Production-shaped: app only, loopback port, `${DB_DIR}` and `${PHOTO_DIR}` bind mounts |
 | [`.env.example`](.env.example) | Operator configuration reference |
 | `server.js`, `store.js`, `oidc.js`, `code.js`, `codes.js`, `views.js`, `i18n.js`, `html.js`, `security.js`, `config.js`, `qrcode.js`, `multipart.js`, `photos.js` | The app: no framework, no build step (two deps, for QR only) |
 | `db/migrations/` | Schema migrations, applied at boot (`001_init`, `002_code_history`, `003_photo`) |
@@ -56,5 +57,14 @@ How to test it, layer by layer, is in [`TESTING.md`](TESTING.md).
 
 ## Production
 
-`docker compose up -d --build` with a real `.env`, behind the operator's nginx. Pick the public hostname and store `CODE_SECRET` **before printing
-stickers** — both are baked into every printed QR (SPEC.md §9.3b).
+`docker compose up -d --build` with a real `.env`, behind the operator's nginx. Pick the
+public hostname and store `CODE_SECRET` **before printing stickers** — both are baked
+into every printed QR (SPEC.md §9.3b).
+
+All state lives inside this directory, in the two bind mounts `./data` (database) and
+`./photos` (item images), plus `.env`. Nothing is written elsewhere — no named Docker
+volumes, no home directories — so `tar` of the checkout (minus `node_modules/`) is a
+complete backup, and restoring it is "copy it back, `docker compose up -d --build`".
+Both directories must be writable by uid 1000 (the image's `node` user):
+`mkdir -p data photos && sudo chown 1000:1000 data photos`. Hot copy of just the
+database: `sqlite3 data/cosas.db ".backup 'data/backup-$(date +%F).db'"`.

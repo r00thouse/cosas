@@ -9,7 +9,7 @@ COPY db ./db
 COPY public ./public
 COPY tools/gen-codes.js ./tools/
 # Files arrive 600 on some checkouts: hand them to the unprivileged user we run as.
-RUN mkdir -p /data && chown -R node:node /app /data
+RUN mkdir -p /data /photos && chown -R node:node /app /data /photos
 USER node
 EXPOSE 8080
 CMD ["node", "server.js"]
