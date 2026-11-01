@@ -933,11 +933,20 @@ things, and later register each one by scanning it. Nothing is pre-registered �
 **Responsive (one stylesheet, mobile first).** `public/app.css` is the only styling;
 breakpoint `@media (max-width: 40rem)`:
 
-- the header stacks and the nav wraps; the item list table becomes cards — every
-  `<td>` carries `data-label` (name, category, status, location, qty) and is rendered
-  by `td::before { content: attr(data-label) }`;
-- `dl.item` becomes a single column; panels lose side padding; `.wrap` pads for
+- the header is two `<nav>`s: `.nav-account` (who, log out, language) beside the
+  brand, and `.nav-main` (Add, Items, Print, Export) under it as a two-column grid of
+  pills that wraps, never scrolls sideways;
+- the side gutter is thin (`--gutter: 0.625rem`) and panels run edge to edge (top and
+  bottom rules only), so content gets the whole screen width; `.wrap` pads for
   `env(safe-area-inset-bottom)`;
+- the item list table becomes cards — every `<td>` carries `data-label` (name,
+  category, status, location, qty) and is rendered by
+  `td::before { content: attr(data-label) }`; the name is the card title (no label),
+  the rest a two-column grid, and the whole card is the link;
+- `dl.item` keeps label and value on one line; on the item page the status buttons
+  are a 2×2 grid, qty is `[−1] [+1]` over `[qty] [Set…]`, and rebind/delete sit
+  apart in `.danger-zone`; the register/edit submit row (`.form-submit`) is sticky
+  at the bottom of the screen; radio groups (status, qty mode) render as chips;
 - `@media (pointer: coarse)` gives every control a `min-height: 2.75rem` (44 px) tap
   target and widens the qty `[+]/[−]` buttons;
 - `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`
