@@ -1303,17 +1303,19 @@ FROM node:24-alpine
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
-COPY server.js oidc.js code.js store.js i18n.js html.js qrcode.js ./
+# Every module by glob: an explicit list silently drops the next new file
+# (assets.js was missing from an earlier list, and the image would not boot).
+COPY *.js ./
 COPY db ./db
 COPY public ./public
 COPY tools/gen-codes.js ./tools/
-RUN mkdir -p /data /photos
+RUN mkdir -p /data /photos && chown -R node:node /app /data /photos
 USER node
 EXPOSE 8080
 CMD ["node", "server.js"]
 ```
 
-The image installs exactly the two runtime dependencies from the lockfile and
+The image installs exactly the three runtime dependencies from the lockfile and
 nothing else (no devDependencies exist). `.dockerignore`: `.git`, `dev-data`, `data`, `photos`,
 `node_modules`, `*.db`, `.env*`, `SPEC-*.md`, `codes.txt`, `tools/mock-idp`,
 `tools/test`. The dev mock IdP (`tools/mock-idp/`) is **not** copied into the app
