@@ -409,12 +409,24 @@
           data = null;
         }
         if (!data || data.length < 100) return;
-        attachPhoto(form, data, [shots]);
-        shots.scrollLeft = shots.scrollWidth;
         flash.classList.remove("on");
         void flash.offsetWidth; // restart the animation
         flash.classList.add("on");
-        count();
+        // A shot gets the same optional crop as a picked file (§8.8): the frame is
+        // already a canvas, so hand the cropper the same image as a blob and keep
+        // the whole frame as the fallback. "Cancel" drops this shot, not the camera.
+        canvas.toBlob(function (blob) {
+          var use = function (chosen) {
+            dialog.classList.remove("is-cropping");
+            if (chosen === false) return;
+            attachPhoto(form, chosen || data, [shots]);
+            shots.scrollLeft = shots.scrollWidth;
+            count();
+          };
+          if (!blob) return use(null);
+          dialog.classList.add("is-cropping");
+          askCrop(blob).then(use);
+        }, "image/jpeg", 0.75);
       }
 
       shutter.addEventListener("click", snap);

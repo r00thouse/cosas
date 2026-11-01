@@ -318,6 +318,12 @@ dialog.camera::backdrop { background: rgb(0 0 0 / 80%); }
 .camera-actions .camera-shutter { flex: 2 1 0; font-size: 1.1rem; }
 .camera-actions button:not(.primary) { background: #222; color: #fff; border-color: #444; }
 .camera-actions button:disabled { opacity: 0.5; }
+/* While the crop dialog sits on top of a shot, the camera's own chrome is inert:
+   a top-layer <dialog> paints above the crop dialog's backdrop, so without this
+   the shutter and "Done" look live underneath it. */
+dialog.camera.is-cropping .camera-status,
+dialog.camera.is-cropping .camera-shots,
+dialog.camera.is-cropping .camera-actions { opacity: 0.3; pointer-events: none; }
 @media (max-width: 40rem) {
   dialog.camera { width: 100vw; height: 100dvh; border-radius: 0; }
 }

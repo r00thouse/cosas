@@ -879,9 +879,15 @@ so the panel stays a grid and the export stays small, not for storage reasons.
   translation table. Buttons: **Rotate**, **Use whole photo**, **Crop**, **Cancel**.
   Crop yields `getCroppedCanvas({maxWidth: 1600})` → `toDataURL("image/jpeg", 0.82)`;
   "whole" falls through to the ordinary downscale path; Cancel skips that file.
-  Several picked files queue one dialog each. Without Cropper.js, or without
-  `<dialog>`, no dialog appears and every photo takes the old path, so the crop step
-  is pure enhancement (`connect-src` must allow `blob:` for Cropper's EXIF read).
+  Several picked files queue one dialog each. A shot from the in-page camera goes
+  through the same step: the frame is already a canvas, so it is handed over as a
+  blob and the whole frame stays the fallback. While a shot is being cropped the
+  camera dialog keeps the stream alive but marks itself `is-cropping`, which dims
+  its shutter/status strip and makes it inert — a top-layer dialog paints above the
+  crop dialog's backdrop, so without that the camera controls would look live
+  underneath. Without Cropper.js, or without `<dialog>`, no dialog appears and every
+  photo takes the old path, so the crop step is pure enhancement (`connect-src` must
+  allow `blob:` for Cropper's EXIF read).
   Several files may be picked at once (`multiple`), and picking again adds more:
   each file becomes its own `photo_data` field, the file input is cleared (`value = ""`)
   so the originals never travel next to their downscaled copies, and a thumbnail is

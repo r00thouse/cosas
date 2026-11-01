@@ -185,7 +185,9 @@ bug report can just say "12.7 fails".
     `[Use whole photo]` keeps the frame untouched, `[Cancel]` adds nothing,
     `[Rotate]` turns it. Escape behaves like Cancel. Do it once in the phone
     emulation of devtools — the corner handles must be big enough to hit with a
-    thumb. Without JavaScript there is no dialog and the file posts as-is.
+    thumb. Do it again from **Take photo**: the shutter opens the same crop dialog
+    over the camera, and the camera's own buttons are dimmed and inert while it is
+    up. Without JavaScript there is no dialog and the file posts as-is.
 
 ### 4.3 Layer 3 — the production shape
 
