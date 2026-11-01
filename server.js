@@ -550,7 +550,12 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
       nonce: newSecret(8),
       exp: Math.floor(now() / 1000) + TX_TTL_S,
     });
-    redirect(res, await oidc.authorizeUrl(state, challenge), [
+    // `?as=member` is a dev knob: the mock IdP reads it to issue a token without the
+    // admin role (TESTING.md §5). A real Kanidm ignores unknown authorization params,
+    // so this is inert in production.
+    const authUrl = await oidc.authorizeUrl(state, challenge);
+    const as = url.searchParams.get("as");
+    redirect(res, as === "member" ? `${authUrl}&as=member` : authUrl, [
       setCookie(COOKIE.tx, tx, { maxAge: TX_TTL_S }),
     ]);
   }

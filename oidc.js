@@ -155,7 +155,7 @@ export class OidcClient {
     if (typeof claims.nbf === "number" && claims.nbf > now + 60) throw new OidcError("not_yet_valid");
     if (typeof claims.sub !== "string" || !claims.sub) throw new OidcError("no_sub");
 
-    const role = roleFromClaims(claims);
+    const role = roleFromClaims(claims, this.cfg.oidcAdminGroup);
     const name = claims.preferred_username || claims.name || claims.email || claims.sub;
     return { sub: claims.sub, name, role, claims };
   }
@@ -186,11 +186,28 @@ export class OidcClient {
   }
 }
 
-/** §5.3 step 6: only Kanidm's `admin` role is honored; anything else is a member. */
-export function roleFromClaims(claims) {
-  const raw = claims.roles ?? claims.groups ?? null;
-  const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[,\s]+/) : [];
-  return list.includes("admin") ? "admin" : "member";
+/** §5.3 step 6: decide the role from the token claims.
+ *
+ * 1. An explicit `roles` claim wins both ways: `["admin"]` is an admin, anything else is
+ *    a reader. Only a claim map that emits `role` produces this.
+ * 2. Otherwise, if OIDC_ADMIN_GROUP is configured, membership of that group decides.
+ * 3. Otherwise the v1 default: whoever Kanidm let in is an admin.
+ *
+ * `groups` is deliberately NOT read without (2): Kanidm sends the person's real group
+ * names ("inventory_users", ...), so treating `groups` as a role list demoted every
+ * real deployment to read-only while the dev mock — whose group happened to be called
+ * "admin" — kept working.
+ */
+export function roleFromClaims(claims, adminGroup = "") {
+  const list = (raw) => (Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[,\s]+/) : []).map((v) => String(v));
+  const roles = claims.roles;
+  if (roles !== undefined && roles !== null) {
+    return list(roles).includes("admin") ? "admin" : "member";
+  }
+  if (adminGroup) {
+    return list(claims.groups).includes(adminGroup) ? "admin" : "member";
+  }
+  return "admin";
 }
 
 /** PKCE pair (§4.3): 32 random bytes -> 43-char base64url verifier, S256 challenge. */

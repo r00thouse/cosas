@@ -73,7 +73,8 @@ library (see §5.3 for the ~40-line replacement).
 | Anonymous (no session) | Open `/r/<code>`. If bound: see the **public** item view (§8.3). If unbound: see a "log in to claim" screen. |
 | Member (logged in) | Everything. Today a member *is* an admin. |
 | Kanidm user not in the app's group | Cannot log in at all (Kanidm refuses the authorization; the app surfaces `auth.denied`). |
-| Group member without `role` claim | Logs in as `admin` (v1 default, §5.3 step 6). |
+| Group member without `roles` claim | Logs in as `admin` (v1 default, §5.3 step 6), whether or not the token carries a `groups` claim. |
+| Member of the app group but not of `OIDC_ADMIN_GROUP` | Logs in as `member`: reads everything, every write returns 403. Only when `OIDC_ADMIN_GROUP` is set. |
 
 There is no admin/member split in the app in v1. The `role` value is carried in the
 session cookie but only values `admin` exist today; the code checks
@@ -93,6 +94,13 @@ kanidm system oauth2 add-redirect-url cosas "https://cosas.<domain>/oidc/callbac
 kanidm system oauth2 update-scope-map cosas inventory_users openid profile
 # Optional, only if you want a role claim now; not required in v1:
 # kanidm system oauth2 update-claim-map cosas role inventory_users admin
+
+# Optional: a real admin/reader split, decided in the app by OIDC_ADMIN_GROUP.
+# The `groups` scope must be granted, otherwise the token carries no group list.
+kanidm group create cosas_admin
+kanidm group add-members cosas_admin <alice>
+kanidm system oauth2 update-scope-map cosas inventory_users openid profile groups
+#   then set OIDC_ADMIN_GROUP=cosas_admin in .env
 kanidm system oauth2 show-basic-secret cosas   # → OIDC_CLIENT_SECRET
 ```
 
@@ -235,8 +243,17 @@ from a template.
 5. Validate claims: `iss === discovery.issuer`, `aud === OIDC_CLIENT_ID`,
    `exp > now - 60`, optional `nbf`, optional `nonce` if we ever send one (we don't
    in v1 — the `state` cookie covers the callback).
-6. `role`: `claim.roles` (claim map) if present and an array/string containing
-   `admin`, else `admin` (v1: everyone who got in is an admin).
+6. `role`, first rule that matches:
+   1. a `roles` claim (from a Kanidm claim map) decides both ways — contains `admin`
+      → `admin`, otherwise `member`;
+   2. else, if `OIDC_ADMIN_GROUP` is set, membership of that group in `groups` →
+      `admin`, otherwise `member`;
+   3. else `admin` (v1: everyone who got in is an admin).
+
+   `groups` alone is **not** treated as a role list: Kanidm sends real group names
+   (`inventory_users`, ...), so looking for the literal string `admin` among them
+   silently demoted every real deployment to read-only while the dev mock (whose
+   group happened to be called `admin`) kept working.
 
 ### 5.6 Escaping (mandatory)
 
@@ -1011,6 +1028,7 @@ Reserved (404): `/i`, `/api`, `/admin`, anything else not listed.
 | `OIDC_CLIENT_ID` | `cosas` | |
 | `OIDC_CLIENT_SECRET` | `<from kanidm>` | secret auth (confidential client) |
 | `OIDC_SCOPES` | `openid profile` (default) | optional; space-separated |
+| `OIDC_ADMIN_GROUP` | *(unset)* | optional Kanidm group whose members may write (§4.1/§5.3). Unset = anyone the IdP lets in is an admin |
 | `TRUST_PROXY` | `0` / `1` | `1` → trust `X-Forwarded-For` and `X-Forwarded-Proto` |
 | `LOG_LEVEL` | `info` | `debug` in dev |
 | `SKIP_DISCOVERY_CHECK` | *(unset)* | optional. `1` skips the boot-time discovery fetch (tests only) |

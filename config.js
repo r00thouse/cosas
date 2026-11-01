@@ -25,6 +25,9 @@ export function loadConfig(env = process.env) {
     oidcClientId: env.OIDC_CLIENT_ID || "cosas",
     oidcClientSecret: env.OIDC_CLIENT_SECRET || "dev-client-secret",
     oidcScopes: env.OIDC_SCOPES || "openid profile",
+    // Optional (§4.1): the Kanidm group whose members may write. Unset means "anyone the
+    // IdP lets in", the v1 default — set it to split admins from readers.
+    oidcAdminGroup: (env.OIDC_ADMIN_GROUP || "").trim(),
     trustProxy: env.TRUST_PROXY === "1",
     logLevel: env.LOG_LEVEL || "info",
     skipDiscoveryCheck: env.SKIP_DISCOVERY_CHECK === "1",

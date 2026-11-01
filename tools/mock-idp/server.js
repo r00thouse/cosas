@@ -22,6 +22,9 @@ const USERS = {
   member: { sub: "mock-user-uuid-00002", name: "mockmember", role: "member" },
 };
 const userFor = (q) => USERS[q.get("as") === "member" ? "member" : "admin"];
+// The group a real deployment would put its admins in (set OIDC_ADMIN_GROUP to this to
+// exercise the split locally).
+const ADMIN_GROUP = process.env.MOCK_ADMIN_GROUP || "cosas_admin";
 
 // Stable key: the app caches the JWKS for an hour (oidc.js), so a fresh key per restart
 // would make every id_token fail signature checks until that cache expired. A fixed dev
@@ -153,7 +156,11 @@ async function tokenBody(req, res, body) {
       exp: now + 300,
       preferred_username: user.name,
       name: user.name,
-      groups: [user.role],
+      // Shape it like a real Kanidm token: a group name that is NOT literally "admin".
+      // The member user additionally carries an explicit `roles` claim, which is how the
+      // read-only path is forced even without OIDC_ADMIN_GROUP (SPEC.md §4.1).
+      groups: [user.role === "admin" ? ADMIN_GROUP : "inventory_users"],
+      ...(user.role === "admin" ? {} : { roles: ["member"] }),
     }),
   });
 }

@@ -206,9 +206,12 @@ the check runs against `http://localhost` and not the LAN address.
 The mock IdP stands in for Kanidm and mimics its endpoints
 (`SPEC.md` §11). For testing it matters that it is **not a login form**:
 
-- Any visit to `/login` logs you in immediately (no form, no password): the admin
-  button returns `mockadmin` with the `admin` role, and `?as=member` returns a
-  `member` without it, so the read-only path is testable.
+- Any visit to `/login` logs you in immediately (no form, no password): `mockadmin`
+  is an admin, and `/login?as=member` gives `mockmember`, who is read-only (403 on
+  every write route). The app forwards `as` to the IdP only because the mock reads it.
+- The token is shaped like a real Kanidm one so the role logic is actually exercised:
+  `groups: ["cosas_admin"]` for the admin (a name that is *not* literally `admin`)
+  and `groups: ["inventory_users"]` plus `roles: ["member"]` for the reader.
 - It enforces PKCE and client authentication exactly like Kanidm, so the app's OIDC
   code is really exercised, not bypassed.
 - `MOCK_PUBLIC_URL` / `MOCK_INTERNAL_URL` separate the URLs the browser sees from the
