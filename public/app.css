@@ -1,25 +1,33 @@
 /* One hand-written stylesheet (SPEC.md §1). Mobile-first, two type sizes, no colors
-   beyond the status badges. Print rules for the 60x30 mm sticker sheets live at the
-   bottom (§8.7): 3 columns x 7 rows per A4 page. */
+   beyond the status badges and the one accent. Print rules for the sticker sheets
+   live at the bottom (§8.7): 4 columns x 11 rows per A4 page. */
 :root {
   color-scheme: light dark;
   --fg: #17181a;
-  --bg: #fbfbfa;
+  --bg: #f6f6f3;
+  --surface: #ffffff;
   --muted: #5c6066;
-  --line: #d9d9d4;
+  --line: #dcdcd6;
   --accent: #1f5f3f;
+  --on-accent: #ffffff;
   --ok: #1f5f3f;
   --busy: #1b4f8a;
   --bad: #8a2b1b;
   --lost: #6b5a12;
+  --radius: 10px;
+  --radius-sm: 8px;
+  /* The side gutter. Thin on purpose on a phone: content uses the screen width. */
+  --gutter: 1rem;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --fg: #e8e8e4;
-    --bg: #141516;
+    --bg: #121314;
+    --surface: #1b1c1e;
     --muted: #a2a6ab;
     --line: #34373b;
     --accent: #7fc9a4;
+    --on-accent: #10261b;
     --ok: #7fc9a4;
     --busy: #8fbdf0;
     --bad: #f0a08f;
@@ -29,99 +37,177 @@
 * { box-sizing: border-box; }
 /* Author display rules below would otherwise beat the UA `hidden` rule. */
 [hidden] { display: none !important; }
-html { font-size: 16px; }
+html { font-size: 16px; -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
   font: 1rem/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
 }
-a { color: var(--accent); }
-h1 { font-size: 1.35rem; margin: 0 0 0.75rem; }
-h2 { font-size: 1.05rem; margin: 1.25rem 0 0.5rem; }
-.wrap { max-width: 52rem; margin: 0 auto; padding: 0.75rem 1rem 3rem; }
+a { color: var(--accent); text-underline-offset: 0.15em; }
+h1 { font-size: 1.35rem; line-height: 1.25; margin: 0 0 0.5rem; }
+h2 { font-size: 1.05rem; margin: 0 0 0.6rem; }
+.wrap { max-width: 52rem; margin: 0 auto; padding: 0.75rem var(--gutter) 3rem; }
 
-/* header / nav */
+/* header / nav: brand and account on one line, the main actions under them */
 .top {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 1rem;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--line);
-  padding-bottom: 0.5rem;
+  padding-bottom: 0.6rem;
   margin-bottom: 1rem;
 }
-.top .brand { font-weight: 600; }
-nav { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: baseline; }
+.top .brand { font-weight: 600; text-decoration: none; color: var(--fg); }
+nav { display: flex; flex-wrap: wrap; gap: 0.4rem 0.75rem; align-items: center; }
 nav form { display: inline; }
+.nav-main { order: 3; flex: 1 1 100%; }
+.nav-main a {
+  text-decoration: none;
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  white-space: nowrap;
+}
+.nav-account { order: 2; font-size: 0.9rem; }
 .lang { display: inline-flex; gap: 0.25rem; }
-.subtitle { color: var(--muted); margin: -0.25rem 0 1rem; }
+.subtitle { color: var(--muted); margin: 0 0 1rem; }
 footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 2rem; padding-top: 0.75rem; font-size: 0.85rem; }
 
 /* buttons / links that act as buttons */
 button, .button {
   font: inherit;
-  padding: 0.3rem 0.7rem;
+  font-weight: 500;
+  padding: 0.45rem 0.9rem;
   border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   color: var(--fg);
   cursor: pointer;
   text-decoration: none;
+  text-align: center;
   display: inline-block;
 }
-button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
-button.danger { color: var(--bad); }
-button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; }
+button:hover, .button:hover { border-color: var(--muted); }
+button:active, .button:active { transform: translateY(1px); }
+button:focus-visible, .button:focus-visible, a:focus-visible,
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+button.primary, .button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+button.danger, .button.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; font-weight: 400; }
 button.link.current { color: var(--fg); text-decoration: none; font-weight: 600; }
+button.link.danger { color: var(--bad); }
 
 /* forms */
-label { display: block; margin: 0.6rem 0 0.15rem; color: var(--muted); font-size: 0.9rem; }
+label { display: block; margin: 0.75rem 0 0.25rem; color: var(--muted); font-size: 0.9rem; }
 input, select, textarea {
   font: inherit;
   width: 100%;
-  padding: 0.35rem 0.5rem;
+  padding: 0.5rem 0.65rem;
   border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   color: var(--fg);
 }
-textarea { min-height: 5rem; }
-fieldset { border: 0; padding: 0; margin: 0.75rem 0 0; }
-fieldset label.radio { display: inline-flex; gap: 0.35rem; margin-right: 1rem; color: var(--fg); font-size: 1rem; }
-fieldset input[type="radio"] { width: auto; }
+input::placeholder, textarea::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
+input[type="file"] { padding: 0.35rem; }
+input[type="file"]::file-selector-button {
+  font: inherit;
+  font-weight: 500;
+  margin-right: 0.75rem;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+textarea { min-height: 5rem; resize: vertical; }
+fieldset { border: 0; padding: 0; margin: 0.75rem 0 0; min-width: 0; }
+legend { color: var(--muted); font-size: 0.9rem; padding: 0; margin-bottom: 0.35rem; }
+/* Radio groups (status, qty mode) read as a row of chips: one tap, clear state. */
+fieldset { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+fieldset legend { flex: 1 1 100%; }
+fieldset label.radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 1rem;
+  cursor: pointer;
+}
+fieldset label.radio:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  font-weight: 500;
+}
+fieldset input[type="radio"] { width: auto; margin: 0; accent-color: var(--accent); }
 .row { display: flex; gap: 0.5rem; align-items: end; flex-wrap: wrap; }
 .row > * { flex: 1 1 10rem; }
 .row > button { flex: 0 0 auto; }
 .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.75rem 0; }
-.panel { border: 1px solid var(--line); border-radius: 6px; padding: 0.75rem 1rem; margin: 1rem 0; }
-.readonly { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.03em; }
+.actions form { margin: 0; }
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  margin: 1rem 0;
+}
+.panel > :last-child { margin-bottom: 0; }
+.readonly { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.03em; color: var(--muted); margin: 0 0 0.75rem; }
 .error { color: var(--bad); }
 .hint { color: var(--muted); }
 .hidden { display: none; }
 
+/* item page: the action groups, from everyday (status, qty) to rare and destructive */
+.status-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr)); }
+.status-actions button { width: 100%; }
+.edit-actions .button { min-width: 10rem; }
+.danger-zone { border-top: 1px solid var(--line); padding-top: 0.75rem; margin-top: 1rem; }
+.danger-zone form p { margin: 0 0 0.5rem; }
+/* The register/edit submit row. */
+.form-submit { margin-top: 1.25rem; }
+.form-submit button.primary { min-width: 10rem; }
+
 /* list */
-table.list { width: 100%; border-collapse: collapse; }
-table.list th, table.list td { text-align: left; padding: 0.4rem 0.35rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.list { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+table.list th, table.list td { text-align: left; padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.list tr:last-child td { border-bottom: 0; }
 table.list th { color: var(--muted); font-weight: 500; font-size: 0.85rem; }
-.filters { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: end; margin: 0 0 0.75rem; }
+table.list td:first-child a { font-weight: 600; text-decoration: none; }
+.filters { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: end; margin: 0 0 1rem; }
+.filters label { margin-top: 0; }
 .filters > * { flex: 1 1 9rem; }
-.filters > button { flex: 0 0 auto; }
-.pager { display: flex; gap: 0.75rem; align-items: center; margin-top: 0.75rem; }
-.badge { font-size: 0.85rem; border: 1px solid currentColor; border-radius: 999px; padding: 0 0.5rem; white-space: nowrap; }
+.filters > button, .filters > .button { flex: 0 0 auto; }
+.pager { display: flex; gap: 0.75rem; align-items: center; justify-content: center; margin-top: 1rem; color: var(--muted); }
+.badge { display: inline-block; font-size: 0.85rem; line-height: 1.4; border: 1px solid currentColor; border-radius: 999px; padding: 0 0.55rem; white-space: nowrap; }
 .badge.available { color: var(--ok); }
 .badge.in_use { color: var(--busy); }
 .badge.broken { color: var(--bad); }
 .badge.missing { color: var(--lost); }
-dl.item { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0.75rem 0; }
+dl.item { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 0.75rem 0; }
 dl.item dt { color: var(--muted); }
 dl.item dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .qr, svg.qr { width: 8rem; height: 8rem; }
 .qty-controls { display: inline-flex; gap: 0.35rem; align-items: center; }
-.qty-controls form { display: inline; }
+.qty-controls form { display: inline-flex; gap: 0.35rem; }
+.qty-controls input[type="number"] { width: 6rem; }
 .code-panel { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
 .code-panel .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.1rem; }
+.code-panel svg.qr { background: #fff; padding: 0.25rem; border-radius: 6px; }
 
 /* sticker sheet (§8.7): fluid on screen, 4 x 49.9 x 25 mm on paper */
 .sheet {
@@ -148,7 +234,8 @@ dl.item dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* §8.9: add-by-phone scanner. The video keeps a 4:3 box so the page does not jump
    when the camera starts; the status line switches from hint to error text. */
-.scanner { border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem; margin: 1rem 0; }
+.scanner { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.9rem 1rem; margin: 1rem 0; }
+.scanner .hint { margin: 0 0 0.5rem; }
 .scanner-video {
   display: block;
   width: 100%;
@@ -159,7 +246,7 @@ dl.item dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   border-radius: 6px;
   margin-bottom: 0.5rem;
 }
-.scan-manual { border-top: 1px solid var(--line); padding-top: 0.5rem; margin-top: 0.5rem; }
+.scan-manual { margin-top: 0.5rem; }
 
 /* §8.8: the item photo grid and the local preview of a picked file */
 .photo-grid { list-style: none; margin: 0.75rem 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0.75rem; }
@@ -213,61 +300,108 @@ dialog.crop::backdrop { background: rgb(0 0 0 / 62%); }
 .suggest li[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 
 /* Who is logged in, and with which role (§8.1). */
-nav .whoami { display: inline-flex; align-items: baseline; gap: 0.35rem; font-size: 0.85rem; color: var(--muted); }
+nav .whoami { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; color: var(--muted); }
 nav .whoami-name { color: var(--fg); font-weight: 600; }
 nav .whoami .badge { font-size: 0.7rem; }
 nav .whoami .role-member { color: var(--muted); }
 
 /* §8.9: the Add shortcut is the one nav item a phone user looks for. */
-nav .nav-add {
-  border: 1px solid var(--accent);
-  border-radius: 999px;
-  padding: 0.05rem 0.6rem;
-  text-decoration: none;
-  white-space: nowrap;
-}
+.nav-main .nav-add { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 500; }
 
 /* Touch devices: every control is at least one finger tall (44 px). */
 @media (pointer: coarse) {
   button, .button, input, select, textarea { min-height: 2.75rem; }
+  input[type="file"] { min-height: 2.75rem; }
   nav a, nav button.link { min-height: 2.75rem; display: inline-flex; align-items: center; }
+  fieldset label.radio { min-height: 2.75rem; }
   .qty-controls button { min-width: 2.75rem; }
-  nav .nav-add { padding: 0 0.75rem; }
 }
 
-/* Phones: the list table becomes cards, the header stacks, panels lose their padding.
-   Every cell carries data-label from views.js, so the label stays visible. */
+/* Phones. The gutter shrinks to 10 px and panels run edge to edge (top/bottom rules
+   only), so the content gets the whole width; the list table becomes cards. Every
+   cell carries data-label from views.js, so the label stays visible. */
 @media (max-width: 40rem) {
-  .wrap { padding: 0.5rem 0.75rem calc(2.5rem + env(safe-area-inset-bottom)); }
-  .top { flex-direction: column; align-items: stretch; gap: 0.35rem; }
-  nav { gap: 0.25rem 1rem; }
+  :root { --gutter: 0.625rem; }
+  .wrap { padding: 0.5rem var(--gutter) calc(2.5rem + env(safe-area-inset-bottom)); }
+  .top { gap: 0.4rem 0.75rem; margin-bottom: 0.85rem; }
+  .nav-main { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
+  .nav-main a { justify-content: center; text-align: center; min-width: 0; white-space: normal; padding: 0.3rem 0.5rem; }
+  .nav-account { gap: 0.25rem 0.6rem; }
   h1 { font-size: 1.2rem; }
-  .panel { padding: 0.6rem 0.75rem; margin: 0.75rem 0; }
-  .row > * { flex: 1 1 100%; }
-  .filters > * { flex: 1 1 45%; }
-  .filters > button { flex: 1 1 100%; }
 
+  .panel, .scanner {
+    margin-left: calc(-1 * var(--gutter));
+    margin-right: calc(-1 * var(--gutter));
+    padding: 0.85rem var(--gutter);
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+  .row > * { flex: 1 1 100%; }
+  .filters > div:first-child { flex: 1 1 100%; }
+  .filters > * { flex: 1 1 40%; }
+  .filters > button, .filters > .button { flex: 1 1 40%; }
+
+  /* list → cards: the name is the title, the rest a compact two-column grid, and
+     the whole card is the link (a stretched ::after over the name's anchor). */
+  table.list { background: none; border: 0; border-radius: 0; overflow: visible; }
   table.list thead { display: none; }
-  table.list, table.list tbody, table.list tr, table.list td { display: block; width: 100%; }
-  table.list tr { border: 1px solid var(--line); border-radius: 6px; padding: 0.4rem 0.6rem; margin-bottom: 0.5rem; }
-  table.list td { border: 0; padding: 0.1rem 0; display: flex; gap: 0.75rem; justify-content: space-between; align-items: baseline; }
+  table.list, table.list tbody { display: block; width: 100%; }
+  table.list tr {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.3rem 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 0.65rem 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+  table.list td { border: 0; padding: 0; display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; overflow-wrap: anywhere; }
   table.list td::before {
     content: attr(data-label);
     color: var(--muted);
-    font-size: 0.8rem;
-    flex: 0 0 auto;
+    font-size: 0.75rem;
   }
   table.list td:empty { display: none; }
-  table.list td:first-child { border-bottom: 1px solid var(--line); padding-bottom: 0.25rem; margin-bottom: 0.25rem; font-weight: 600; }
-  table.list td:first-child a { text-decoration: none; }
+  table.list td:first-child { grid-column: 1 / -1; font-size: 1.05rem; }
+  table.list td:first-child::before { display: none; }
+  table.list td:first-child a::after { content: ""; position: absolute; inset: 0; border-radius: var(--radius); }
+  table.list td .badge { align-self: flex-start; }
 
-  dl.item { grid-template-columns: 1fr; gap: 0; }
-  dl.item dt { margin-top: 0.5rem; font-size: 0.85rem; }
-  .code-panel { gap: 0.75rem; }
-  .qty-controls { display: flex; flex-direction: column; align-items: stretch; gap: 0.5rem; }
+  /* Label left, value right: one line per field instead of two. */
+  dl.item { grid-template-columns: minmax(6rem, max-content) 1fr; gap: 0.45rem 0.75rem; }
+  dl.item dt { font-size: 0.85rem; padding-top: 0.1rem; }
+
+  .status-actions { grid-template-columns: repeat(2, 1fr); }
+  .qty-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
   .qty-controls form { display: flex; gap: 0.5rem; }
   .qty-controls form > * { flex: 1 1 auto; }
+  .qty-controls form:nth-child(1) { order: 1; }
+  .qty-controls form:nth-child(3) { order: 2; }
+  .qty-controls form:nth-child(2) { order: 3; grid-column: 1 / -1; }
+  .qty-controls input[type="number"] { width: auto; min-width: 0; }
+  .edit-actions .button { flex: 1 1 100%; }
+  .danger-zone > form { flex: 1 1 100%; }
+  .danger-zone > form button { width: 100%; }
+
+  /* The submit button stays under the thumb while the form scrolls. */
+  .form-submit {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin: 1rem calc(-1 * var(--gutter)) 0;
+    padding: 0.6rem var(--gutter) calc(0.6rem + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
+    backdrop-filter: blur(6px);
+    border-top: 1px solid var(--line);
+  }
+  .form-submit button.primary, .form-submit .button { flex: 1 1 0; }
+
+  .code-panel { gap: 0.75rem; }
   .qr { width: 10rem; height: 10rem; }
+  .scanner-video { max-height: 55vh; }
 }
 
 @media print {

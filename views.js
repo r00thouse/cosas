@@ -53,10 +53,12 @@ ${cropper ? raw(`<link rel="stylesheet" href="${asset("/vendor/cropper.css")}">`
 <div class="wrap">
 <header class="top">
   <a class="brand" href="/">${t("app.title")}</a>
-  <nav>
+  <nav class="nav-main">
     ${admin ? html`<a class="nav-add" href="/add">${t("nav.add")}</a>` : raw("")}
     <a href="/">${t("nav.home")}</a>
     ${admin ? html`<a href="/codes">${t("nav.print")}</a><a href="/export.csv">${t("nav.export")}</a>` : raw("")}
+  </nav>
+  <nav class="nav-account">
     ${member
       ? html`<span class="whoami"><span class="whoami-name">${session.name}</span><span class="badge role-${session.role}" title="${t(`role.${session.role}`)}">${t(`role.${session.role}`)}</span></span>
     <form method="post" action="/logout">${csrfField(c)}<button class="link" type="submit">${t("nav.logout")}</button></form>`
@@ -209,7 +211,7 @@ ${photoPanel(c, item, code, photos)}
 </dl>
 ${item.reused ? html`<p class="hint">${t("scan.reused")}</p>` : raw("")}
 ${flash ? html`<p class="hint">${t(flash)}</p>` : raw("")}
-<div class="actions">
+<div class="actions status-actions">
   ${statusButtons(c, item)}
 </div>
 <div class="actions qty-controls">
@@ -217,11 +219,11 @@ ${flash ? html`<p class="hint">${t(flash)}</p>` : raw("")}
   <form method="post" action="/r/${code.toLowerCase()}/qty">${csrfField(c)}<input type="number" name="qty" min="0" max="100000" value="${item.qty}" aria-label="${t("item.qty")}"><button type="submit">${t("action.qty_set")}</button></form>
   <form method="post" action="/r/${code.toLowerCase()}/qty">${csrfField(c)}<input type="hidden" name="delta" value="1"><button data-qty-delta="1" type="submit">${t("action.qty_plus")}</button></form>
 </div>
-<div class="actions">
+<div class="actions edit-actions">
   <a class="button" href="/r/${code.toLowerCase()}?edit=1">${t("action.edit")}</a>
 </div>
 ${editing ? editForm(c, code, item, errors) : raw("")}
-<div class="actions">
+<div class="actions danger-zone">
   ${confirm === "rebind"
     ? html`<form method="post" action="/r/${code.toLowerCase()}/rebind">${csrfField(c)}<p>${t("action.rebind_confirm")}</p><button class="danger" type="submit">${t("action.rebind_new_code")}</button> <a class="button" href="/r/${code.toLowerCase()}">${t("form.cancel")}</a></form>`
     : html`<form method="post" action="/r/${code.toLowerCase()}/rebind">${csrfField(c)}<input type="hidden" name="confirm" value="1"><button type="submit">${t("action.rebind")}</button></form>`}
@@ -360,8 +362,8 @@ ${cropTemplate(c)}`
 <label for="notes">${t("item.notes")}</label>
 <textarea id="notes" name="notes" rows="4" maxlength="4000" placeholder="${t("form.notes_placeholder")}">${v.notes || ""}</textarea>
 ${mode === "register"
-  ? html`<p class="hint">${t("scan.unclaimed_prompt")}</p><div class="actions"><button class="primary" type="submit">${t("form.register")}</button></div>`
-  : html`<div class="actions"><button class="primary" type="submit">${t("form.save")}</button> <a class="button" href="/r/${code.toLowerCase()}">${t("form.cancel")}</a></div>`}`;
+  ? html`<p class="hint">${t("scan.unclaimed_prompt")}</p><div class="actions form-submit"><button class="primary" type="submit">${t("form.register")}</button></div>`
+  : html`<div class="actions form-submit"><button class="primary" type="submit">${t("form.save")}</button> <a class="button" href="/r/${code.toLowerCase()}">${t("form.cancel")}</a></div>`}`;
 }
 
 function editForm(c, code, item, errors) {
