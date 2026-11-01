@@ -891,6 +891,13 @@ so the panel stays a grid and the export stays small, not for storage reasons.
   (each linked to the full-size bytes, each with its own `[Delete photo]` form), then
   `[Take or choose a photo]` / `[Add another photo]`, `[Upload]`, and a local preview
   via `[data-photo-preview]`. Deleting one photo never touches the others.
+- **Two pickers.** Both places offer `[Take photo]` and `[Choose files]`: two
+  `name="photo"` file inputs dressed as buttons (`photoPickers()` in `views.js`).
+  `[Take photo]` has `accept="image/*" capture="environment"`, so a phone opens its
+  rear camera straight away; `[Choose files]` is the gallery/file picker with
+  `multiple`. Same pipeline for both (crop, downscale, preview, `photo_data`), no new
+  dependency, and without JS they still post. `[Take photo]` is hidden on
+  `(hover: hover) and (pointer: fine)` screens, where it would be a second file picker.
 - **Who can see it.** `GET /photo/:code/:photo` is a member route, like every other
   write. Anonymous visitors never get a photo URL, so a photographed serial number
   cannot leak through the public view. Images are sent with
