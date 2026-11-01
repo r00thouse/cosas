@@ -1,5 +1,9 @@
 # Production: app only. TLS terminates at the operator's nginx.
 # For local development use ./dev.sh instead: it runs node directly, no image build.
+#
+# Every value below with a ${...} default is a knob in .env: the .env file is read for
+# interpolation (and by env_file for the rest), so it wins over the defaults here.
+# Values without ${...} are fixed facts of the image and cannot be overridden there.
 services:
   app:
     build: .
@@ -8,27 +12,27 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      PORT: 8080
-      DB_PATH: /data/cosas.db
-      PHOTO_DIR: /photos
-      TRUST_PROXY: "1"
+      PORT: ${PORT:-8080}
+      DB_PATH: ${DB_PATH:-/data/cosas.db}
+      PHOTO_DIR: ${PHOTO_DIR:-/photos}
+      TRUST_PROXY: "${TRUST_PROXY:-1}"
     # Two host directories on purpose (both bind mounts, never named volumes): the
     # database and the image files can then be backed up by different means. They are
     # relative to this directory so that copying the repo copies every byte the app
     # needs. Both must be writable by uid 1000 (the image's `node` user).
     volumes: !override
       - ${DB_DIR:-./data}:/data
-      - ${PHOTO_DIR:-./photos}:/photos
-    # published only on loopback in prod; the dev overlay REPLACES this list with
-    # ["8080:8080"] (Compose appends ports across files unless overridden with !reset)
+      - ${PHOTO_HOST_DIR:-./photos}:/photos
+    # Loopback only in prod: nginx is the only client. Change PORT in .env and the
+    # published port follows.
     ports: !override
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${PORT:-8080}:${PORT:-8080}"
     healthcheck:
       test:
         - CMD
         - node
         - -e
-        - "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        - "fetch('http://127.0.0.1:${PORT:-8080}/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
       interval: 30s
       timeout: 5s
       retries: 3

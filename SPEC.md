@@ -1004,7 +1004,7 @@ Reserved (404): `/i`, `/api`, `/admin`, anything else not listed.
 | `PORT` | `8080` | |
 | `PUBLIC_ORIGIN` | `https://cosas.hacklab.example` | no trailing slash. Drives QR URLs, redirect URI, cookie `Secure`. |
 | `DB_PATH` | `/data/cosas.db` | inside the container |
-| `PHOTO_DIR` | *(optional)* | where §8.8 image files live; defaults to `dirname(DB_PATH)/photos`. `compose.yaml` sets `/photos` and bind-mounts `${PHOTO_DIR:-./photos}` there, so the database and the images can be backed up on separate schedules |
+| `PHOTO_DIR` | *(optional)* | where §8.8 image files live; defaults to `dirname(DB_PATH)/photos`. `compose.yaml` sets `/photos` and bind-mounts `${PHOTO_HOST_DIR:-./photos}` there, so the database and the images can be backed up on separate schedules |
 | `SESSION_SECRET` | `<openssl rand -base64 48>` | |
 | `CODE_SECRET` | `<openssl rand -base64 48>` | **must never change** or all printed stickers die (codes are HMAC'd with it) |
 | `OIDC_DISCOVERY_URL` | `https://idm.hacklab.example/oauth2/openid/cosas/.well-known/openid-configuration` | exact per-client URL |
@@ -1031,25 +1031,38 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      PORT: 8080
-      DB_PATH: /data/cosas.db
-      PHOTO_DIR: /photos
-      TRUST_PROXY: "1"
-    # Two bind mounts, never named volumes: the database and the image files can live
-    # on different disks and be backed up separately.
+      PORT: ${PORT:-8080}
+      DB_PATH: ${DB_PATH:-/data/cosas.db}
+      PHOTO_DIR: ${PHOTO_DIR:-/photos}
+      TRUST_PROXY: "${TRUST_PROXY:-1}"
     volumes:
       - ${DB_DIR:-./data}:/data
-      - ${PHOTO_DIR:-./photos}:/photos
+      - ${PHOTO_HOST_DIR:-./photos}:/photos
     ports:
-      - "127.0.0.1:8080:8080"   # loopback only in prod; the dev overlay replaces it
+      - "127.0.0.1:${PORT:-8080}:${PORT:-8080}"   # loopback only: nginx is the client
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:${PORT:-8080}/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
 ```
 
-Both host directories must be writable by **uid 1000** (the image's `node` user);
+**`.env` wins.** Compose reads `.env` for `${…}` interpolation *and* hands the whole
+file to the container via `env_file`, but `env_file` loses to a literal `environment:`
+value — so each knob is written as `${NAME:-default}`. That is why everything
+operator-tunable (`PORT`, `DB_PATH`, `PHOTO_DIR`, `TRUST_PROXY`, `DB_DIR`,
+`PHOTO_HOST_DIR`) is interpolated, and why nothing in `environment:` is a bare
+constant: a bare constant would silently ignore `.env` (SPEC §10.1). Changing `PORT`
+moves the listener, the published port and the healthcheck together; nginx's
+`proxy_pass` has to follow it.
+
+Note the two different names for photos: `PHOTO_DIR` is the path *inside* the
+container (`/photos`, what the app writes to), `PHOTO_HOST_DIR` is the host directory
+bind-mounted there — one name cannot be both without the risk of the app writing into
+the image layer.
+
+Both `DB_DIR` and `PHOTO_HOST_DIR` must be writable by **uid 1000** (the image's
+`node` user);
 compose creates a missing host directory as root, so `mkdir -p data photos &&
 sudo chown 1000:1000 data photos` once is enough, and a wrong owner shows up as
 `EACCES` in the logs on the first photo upload.

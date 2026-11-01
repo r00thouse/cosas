@@ -45,7 +45,7 @@ How to test it, layer by layer, is in [`TESTING.md`](TESTING.md).
 | [`SPEC.md`](SPEC.md) | The complete spec: routes, schema, OIDC, codes/QR, i18n, ops, acceptance checklist, build order, decision log |
 | [`TESTING.md`](TESTING.md) | Manual test guide for the local platform |
 | [`dev.sh`](dev.sh) | Powers on / off / resets / smoke-tests the local platform (plain node, no build) |
-| [`compose.yaml`](compose.yaml) | Production-shaped: app only, loopback port, `${DB_DIR}` and `${PHOTO_DIR}` bind mounts |
+| [`compose.yaml`](compose.yaml) | Production-shaped: app only, loopback port, `${DB_DIR}` and `${PHOTO_HOST_DIR}` bind mounts, knobs read from `.env` |
 | [`.env.example`](.env.example) | Operator configuration reference |
 | `server.js`, `store.js`, `oidc.js`, `code.js`, `codes.js`, `views.js`, `i18n.js`, `html.js`, `security.js`, `config.js`, `qrcode.js`, `multipart.js`, `photos.js` | The app: no framework, no build step (two deps, for QR only) |
 | `db/migrations/` | Schema migrations, applied at boot (`001_init`, `002_code_history`, `003_photo`) |
@@ -60,6 +60,10 @@ How to test it, layer by layer, is in [`TESTING.md`](TESTING.md).
 `docker compose up -d --build` with a real `.env`, behind the operator's nginx. Pick the
 public hostname and store `CODE_SECRET` **before printing stickers** — both are baked
 into every printed QR (SPEC.md §9.3b).
+
+`.env` is authoritative: `PORT`, `DB_PATH`, `PHOTO_DIR`, `TRUST_PROXY`, `DB_DIR` and
+`PHOTO_HOST_DIR` are interpolated by `compose.yaml` (`${NAME:-default}`), so editing the
+file is enough — no compose edits, no `-e` flags.
 
 All state lives inside this directory, in the two bind mounts `./data` (database) and
 `./photos` (item images), plus `.env`. Nothing is written elsewhere — no named Docker
