@@ -309,8 +309,10 @@ dialog.camera::backdrop { background: rgb(0 0 0 / 80%); }
 .camera-flash.on { animation: camera-flash 0.25s ease-out; }
 @keyframes camera-flash { from { opacity: 0.7; } to { opacity: 0; } }
 .camera-status { margin: 0; padding: 0.4rem 0.75rem 0; font-size: 0.9rem; color: #ddd; }
-.camera-shots { display: flex; gap: 0.35rem; overflow-x: auto; padding: 0.4rem 0.75rem; min-height: 3.6rem; }
-.camera-shots img { flex: 0 0 auto; width: 3.2rem; height: 3.2rem; object-fit: cover; border-radius: 6px; border: 1px solid #555; }
+.camera-shots { display: flex; gap: 0.5rem; overflow-x: auto; padding: 0.4rem 0.75rem; min-height: 4rem; }
+.camera-shots .photo-tile { flex: 0 0 5rem; }
+.camera-shots img { width: 5rem; height: 3.75rem; object-fit: cover; border-radius: 6px; border: 1px solid #555; }
+.camera-shots .photo-remove { background: #222; color: #ffb4a4; border-color: #6b3a30; }
 .camera-actions { display: flex; gap: 0.5rem; padding: 0.5rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom)); }
 .camera-actions button { flex: 1 1 0; min-height: 3.25rem; }
 .camera-actions .camera-shutter { flex: 2 1 0; font-size: 1.1rem; }
@@ -323,6 +325,10 @@ dialog.camera::backdrop { background: rgb(0 0 0 / 80%); }
 /* Photos picked on the register form, before they are uploaded (§8.8). */
 .photo-preview-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr)); gap: 0.5rem; margin-top: 0.5rem; }
 .photo-preview-row img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
+/* A picked or shot photo not uploaded yet: the image over its "Remove" button. */
+.photo-tile { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.photo-tile img { display: block; }
+.photo-remove { width: 100%; padding: 0.25rem 0.4rem; font-size: 0.9rem; color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
 /* §8.8: the optional crop step. A <dialog> so the phone gets a modal surface and
    Escape/back-gesture handling for free; the stage is sized in viewport units. */
 dialog.crop {

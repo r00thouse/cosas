@@ -906,6 +906,11 @@ so the panel stays a grid and the export stays small, not for storage reasons.
   the stream. Any failure to get a stream (denied, no camera, busy) closes the dialog
   and opens the native `capture` input, which needs no browser permission; the
   button remembers that for the rest of the page.
+- **Taking a photo back out.** Every photo not uploaded yet — shot or picked — shows
+  as a tile with a `[Remove]` button, in the form's preview row and, for shots, in
+  the camera's strip too. Removing drops its `photo_data` field and every tile of it
+  and frees its slot in the 8; nothing is on the server yet, so there is no request
+  and no confirmation. Uploaded photos keep their `[Delete photo]` form.
 - **Who can see it.** `GET /photo/:code/:photo` is a member route, like every other
   write. Anonymous visitors never get a photo URL, so a photographed serial number
   cannot leak through the public view. Images are sent with
