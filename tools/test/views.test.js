@@ -26,4 +26,11 @@ test("photo fields offer the rear camera and the file picker, both as name=photo
     assert.match(html, /<template data-camera-template[\s\S]*data-camera-shutter[\s\S]*Sacar foto[\s\S]*Listo/, "in-page camera dialog");
   }
   assert.match(String(registerPage(ctx("en"), { code: "AAAA000000000001" })), /Take photo/);
+
+  // A fresh item has all eight slots open; the panel tells the picker how many are left
+  // so a gallery pick of nine is trimmed before it posts, not refused after (§8.8).
+  const fresh = String(photoPanel(ctx(), {}, "AAAA000000000001", []));
+  assert.equal((fresh.match(/data-room="8"/g) || []).length, 2);
+  const full = String(photoPanel(ctx(), {}, "AAAA000000000001", Array.from({ length: 8 }, (_, i) => ({ id: i + 1 }))));
+  assert.equal((full.match(/data-room="0"/g) || []).length, 2);
 });

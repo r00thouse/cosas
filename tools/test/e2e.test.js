@@ -467,6 +467,33 @@ test("photos: multipart register, add several, delete one, access control", asyn
   assert.equal(ids.length, 3, "three photos in the grid");
   assert.match((await c(`/photo/${code}/${ids[1]}`)).headers.get("content-type"), /image\/png/);
 
+  // A gallery pick is one post with one `photo_data` per file: every photo of it is
+  // kept, not just the first (§8.8).
+  const pick = new URLSearchParams();
+  pick.append("_csrf", token);
+  pick.append("photo_data", `data:image/png;base64,${PNG.toString("base64")}`);
+  pick.append("photo_data", `data:image/jpeg;base64,${JPEG.toString("base64")}`);
+  const multi = await c(`/r/${code}/photo`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: pick.toString(),
+  });
+  assert.equal(multi.status, 302);
+  const thumbs = async () => [...(await c(`/r/${code}`)).text.matchAll(/<img class="photo-thumb" src="\/photo\/[0-9a-z]+\/(\d+)"/g)].map((m) => m[1]);
+  assert.equal((await thumbs()).length, 5, "both photos of one pick are kept");
+
+  // More than the item holds is refused whole, never half saved.
+  const tooMany = new URLSearchParams();
+  tooMany.append("_csrf", token);
+  for (let i = 0; i < 4; i += 1) tooMany.append("photo_data", `data:image/png;base64,${PNG.toString("base64")}`);
+  const over = await c(`/r/${code}/photo`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: tooMany.toString(),
+  });
+  assert.equal(over.status, 422);
+  assert.equal((await thumbs()).length, 5, "the refused pick saved nothing");
+
   // Bytes that are not an image are refused and the grid is untouched.
   const notImage = await c(
     `/r/${code}/photo`,

@@ -16,7 +16,7 @@ import { createStore, Conflict, STATUSES, QTY_MODES } from "./store.js";
 import { normalize as normalizeCode, parse as parseCode, normalizeScan } from "./code.js";
 import { parseSheetQuery, sheetCodes, freshCode, stickerUrl } from "./codes.js";
 import { boundaryOf, parseMultipart, MultipartError } from "./multipart.js";
-import { MAX_PHOTO, MAX_PHOTOS, parseDataUrl, savePhoto, removePhoto, photoFile, sniff, collectGarbage } from "./photos.js";
+import { MAX_PHOTO, MAX_PHOTOS, parseDataUrl, savePhoto, removePhoto, photoFile, sniff, collectGarbage, missingPhotos } from "./photos.js";
 import { makeT, pickLang, LANGS } from "./i18n.js";
 import { sign, unsign, csrfFor, csrfValid, newSecret, clientIp, createLimiter } from "./security.js";
 import { OidcClient, pkcePair, roleDiagnostics, safeNext, OidcError } from "./oidc.js";
@@ -385,25 +385,41 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
       }
       throw new HttpError(409, "err.code_taken", { existing });
     }
-    for (const photo of photos) {
-      const name = await savePhoto(cfg.photoDir, item.id, photo.bytes, photo.ext);
-      store.addPhoto(item.id, item.code, name, session.sub);
-    }
+    await savePhotos(item, photos, session);
     log("info", "item.register", { code: item.code, actor: session.sub, photos: photos.length });
     redirect(res, `/r/${item.code.toLowerCase()}`);
   }
 
-  /** `POST /r/:code/photo` (§8.8): attach one more photo, up to MAX_PHOTOS. */
+  /**
+   * `POST /r/:code/photo` (§8.8): attach the photos of one pick, up to MAX_PHOTOS.
+   * The form carries one `photo_data` field per picked file, so the whole batch
+   * must be read, not just the first one: the picker offers several at a time.
+   */
   async function postPhoto(req, res, session, { code: codeParam, form, files }) {
     const { item } = boundOr410(codeParam);
     const home = `/r/${item.code.toLowerCase()}`;
-    if (store.photosOf(item.id).length >= MAX_PHOTOS) throw new HttpError(422, "err.photo_limit");
-    const photo = readPhotos(form, files)[0];
-    if (!photo) throw new HttpError(422, "err.bad_photo");
-    const name = await savePhoto(cfg.photoDir, item.id, photo.bytes, photo.ext);
-    store.addPhoto(item.id, item.code, name, session.sub);
-    log("info", "item.photo_add", { code: item.code, bytes: photo.bytes.length, actor: session.sub });
+    const photos = readPhotos(form, files);
+    if (!photos.length) throw new HttpError(422, "err.bad_photo");
+    // Refuse an oversized pick whole rather than saving half of it silently.
+    if (store.photosOf(item.id).length + photos.length > MAX_PHOTOS) {
+      throw new HttpError(422, "err.photo_limit");
+    }
+    await savePhotos(item, photos, session);
+    log("info", "item.photo_add", {
+      code: item.code,
+      photos: photos.length,
+      bytes: photos.reduce((n, p) => n + p.bytes.length, 0),
+      actor: session.sub,
+    });
     redirect(res, `${home}?flash=photo`);
+  }
+
+  /** Save each photo's bytes, then its row: a row must never point at a missing file. */
+  async function savePhotos(item, photos, session) {
+    for (const photo of photos) {
+      const name = await savePhoto(cfg.photoDir, item.id, photo.bytes, photo.ext);
+      store.addPhoto(item.id, item.code, name, session.sub);
+    }
   }
 
   /** `POST /r/:code/photo/:photo/delete` (§8.8): drop one photo and its file. */
@@ -422,11 +438,17 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     const { item } = boundOr410(codeParam);
     const row = store.photosOf(item.id).find((p) => p.id === Number(photoParam));
     const f = row ? photoFile(cfg.photoDir, row.name) : null;
-    if (!f) throw new HttpError(404, "err.not_found");
+    if (!f) {
+      if (row) log("warn", "photo.missing", { code: item.code, photo: row.id, name: row.name, reason: "bad_name" });
+      throw new HttpError(404, "err.not_found");
+    }
     let data;
     try {
       data = await readFile(f.path);
-    } catch {
+    } catch (err) {
+      // The row survived but its bytes did not: say so, with the name, so a lost
+      // photo dir (wrong mount, permissions) is visible instead of a bare 404.
+      log("warn", "photo.missing", { code: item.code, photo: row.id, name: row.name, reason: err.code || "read_failed" });
       throw new HttpError(404, "err.not_found");
     }
     send(req, res, 200, data, { "content-type": f.mime, "cache-control": "private, max-age=300" });
@@ -946,6 +968,14 @@ if (process.argv[1] && normalize(process.argv[1]) === normalize(fileURLToPath(im
   const oidc = new OidcClient(cfg, log);
   await oidc.init();
   const { server, store } = createApp(cfg, { db, oidc });
+  // Rows that point at no file mean the photo dir moved or lost bytes: report it.
+  try {
+    const names = store.photoNames();
+    const missing = await missingPhotos(cfg.photoDir, names);
+    if (missing.length) log("warn", "photos.missing", { dir: cfg.photoDir, count: missing.length, sample: missing.slice(0, 5) });
+  } catch (err) {
+    log("warn", "photos.audit_failed", { error: String(err && err.message) });
+  }
   // Drop photo files no row points at (e.g. a crash between write and COMMIT, §8.8).
   try {
     const removed = await collectGarbage(cfg.photoDir, store.photoNames());

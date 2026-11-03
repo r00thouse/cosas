@@ -3,6 +3,7 @@
 import { html, raw, esc } from "./html.js";
 import { pretty as prettyCode, stickerLines } from "./code.js";
 import { STATUSES, QTY_MODES } from "./store.js";
+import { MAX_PHOTOS } from "./photos.js";
 import { qrMatrix, matrixToSvg } from "./qrcode.js";
 
 const SEED_CATEGORIES = [
@@ -287,7 +288,7 @@ ${csrfField(c)}
 <form method="post" action="/r/${code.toLowerCase()}/photo" enctype="multipart/form-data">
 ${csrfField(c)}
 <label for="photo-file">${photos.length ? t("photo.add_more") : t("photo.add")}</label>
-${photoPickers(c, "photo-file")}
+${photoPickers(c, "photo-file", Math.max(0, MAX_PHOTOS - photos.length))}
 <div class="photo-preview-row" data-photo-previews data-msg-remove="${t("photo.remove")}"></div>
 <p class="hint">${t("photo.hint")}</p>
 <button class="primary" type="submit">${t("photo.upload")}</button>
@@ -303,11 +304,11 @@ ${cropTemplate(c)}
  * downscales and previews either one, and without JS they still post. The camera
  * button only shows on touch screens; on a desktop it would be a second file picker.
  */
-function photoPickers(c, id) {
+function photoPickers(c, id, room = MAX_PHOTOS) {
   const { t } = c;
   return html`<div class="photo-pick">
-<label class="button primary photo-camera"><input class="sr-only" name="photo" type="file" accept="image/*" capture="environment">${t("photo.take")}</label>
-<label class="button photo-files"><input class="sr-only" id="${id}" name="photo" type="file" accept="image/jpeg,image/png,image/webp" multiple>${t("photo.choose")}</label>
+<label class="button primary photo-camera"><input class="sr-only" name="photo" type="file" accept="image/*" capture="environment" data-room="${room}">${t("photo.take")}</label>
+<label class="button photo-files"><input class="sr-only" id="${id}" name="photo" type="file" accept="image/jpeg,image/png,image/webp" multiple data-room="${room}">${t("photo.choose")}</label>
 </div>
 ${cameraTemplate(c)}`;
 }

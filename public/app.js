@@ -296,7 +296,10 @@
         });
         // A non-image is the server's call to refuse, with a message: post it as-is.
         if (images.length !== picked.length) return;
-        var batch = images.slice(0, Math.max(0, MAX_PHOTOS - scaled));
+        // How many the server will still take for this item (the panel knows).
+        var room = parseInt(node.getAttribute("data-room"), 10);
+        if (!(room >= 0)) room = MAX_PHOTOS;
+        var batch = images.slice(0, Math.max(0, room - scaled));
         // Clearing the input matters: the picked originals must never travel with
         // the form next to their downscaled copies. The input stays, so more photos
         // can be added by picking again.

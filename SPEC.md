@@ -673,7 +673,7 @@ a redirect. All HTML responses are `text/html; charset=utf-8`.
 | 18 | `GET /healthz` | anon | `200 text/plain "ok"` after `SELECT 1`. No DB detail, no version. |
 | 19 | `GET /static/*` | anon | `public/` files, `max-age=3600`, correct `Content-Type`, path-traversal rejected. |
 | 20 | `GET /add` | member | Phone add page (§8.9): the camera QR scanner plus a typed-code fallback. `?code=` is normalized and validated → `302 /r/<code>`; anything invalid → `422 scan.not_found` rendered on the same page. |
-| 21 | `POST /r/:code/photo` | member | Attach one more photo (§8.8): a `photo` file part, or `photo_data` (a downscaled data URL). 413 `err.photo_too_big`, 422 `err.bad_photo`, 422 `err.photo_limit` at 8 photos, 302 back to the item with `?flash=photo`. |
+| 21 | `POST /r/:code/photo` | member | Attach the photos of one pick (§8.8): one or more `photo` file parts and/or repeated `photo_data` fields (downscaled data URLs). Every photo in the body is saved, up to the item's remaining slots. 413 `err.photo_too_big`, 422 `err.bad_photo`, 422 `err.photo_limit` when the body would take the item past 8 — then **nothing** of it is saved — 302 back to the item with `?flash=photo`. |
 | 22 | `POST /r/:code/photo/:photo/delete` | member | Delete one photo and its file (§8.8). 404 for a photo id that is not this item's. 302 with `?flash=photo_removed`. |
 | 22b | `GET /photo/:code/:photo` | member | The bytes of one photo with its real `Content-Type`, `cache-control: private, max-age=300`. 404 when that photo does not exist. |
 | 23 | `GET /manifest.webmanifest` | anon | The PWA manifest (§8.10), `application/manifest+json`, `cache-control: no-cache`. |
@@ -892,9 +892,22 @@ so the panel stays a grid and the export stays small, not for storage reasons.
   each file becomes its own `photo_data` field, the file input is cleared (`value = ""`)
   so the originals never travel next to their downscaled copies, and a thumbnail is
   appended to `[data-photo-previews]`. A repeated field name is an array in both the
-  multipart and the urlencoded parser (`multipart.js`), so one register post can carry
-  up to `MAX_PHOTOS` (8) photos. The body cap is 24 MB (`server.js` `MAX_BODY`)
+  multipart and the urlencoded parser (`multipart.js`), so one post can carry
+  up to `MAX_PHOTOS` (8) photos — the register post and the item panel's
+  `[Upload]` alike: a gallery pick of three is one request with three
+  `photo_data` fields, and all three become rows. A body that would take the item
+  past the limit is refused whole (422 `err.photo_limit`), never half saved; the two
+  pickers carry `data-room` (the slots left) so `app.js` trims a too-large pick
+  before it posts. The body cap is 24 MB (`server.js` `MAX_BODY`)
   and every file is checked against `MAX_PHOTO` (8 MB).
+- **A row without its file is loud.** The row is the source of truth, so a missing
+  file is still a 404 (§8.8 `GET /photo`), but it is no longer silent: serving it
+  logs `photo.missing` with the item code, photo id, file name and the errno
+  (`ENOENT` for a lost volume or wrong `PHOTO_DIR`, `EACCES` for ownership), and
+  boot counts the rows whose file is absent — `photos.missing` with `dir`, `count`
+  and a `sample` of names (`missingPhotos()` in `photos.js`) — right before the
+  GC that drops files no row points at. A photo directory that mounts empty under a
+  healthy database shows up in the log on the next start instead of as a bare 404.
 - **Where it shows.** The register form (§8.2) accepts several photos as part of
   creating the item, which is what the phone "Add" flow needs: scan the sticker, take
   the label photo, take the front photo, save — one form, one round trip. The item

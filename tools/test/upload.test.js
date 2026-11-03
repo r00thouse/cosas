@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { boundaryOf, parseMultipart, MultipartError } from "../../multipart.js";
-import { sniff, parseDataUrl, savePhoto, removePhoto, photoFile, collectGarbage, MAX_PHOTO } from "../../photos.js";
+import { sniff, parseDataUrl, savePhoto, removePhoto, photoFile, collectGarbage, missingPhotos, MAX_PHOTO } from "../../photos.js";
 
 const BOUNDARY = "----testboundary1234";
 
@@ -117,6 +117,14 @@ test("savePhoto, photoFile and removePhoto round-trip inside the directory", asy
   await assert.rejects(readFile(join(dir, name)));
   await removePhoto(dir, name); // missing file is not an error
   await removePhoto(dir, "");
+});
+
+test("missingPhotos names the rows whose file is gone", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "cosas-missing-"));
+  const here = await savePhoto(dir, 1, PNG, "png");
+  const gone = "2-0123456789ab.jpg";
+  assert.deepEqual(await missingPhotos(dir, [here, gone]), [gone]);
+  assert.deepEqual(await missingPhotos(join(dir, "no-such-dir"), [gone]), [gone]);
 });
 
 test("collectGarbage removes only files no row points at", async () => {

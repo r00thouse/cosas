@@ -1,7 +1,7 @@
 // Item photos (SPEC.md §8.8). Bytes live on disk next to the database, one file per
 // photo, and the `item_photos` table stores only the file name. No image library: the phone
 // downscales before upload and the server only checks the magic bytes.
-import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
@@ -69,6 +69,20 @@ const NAME_RE = /^(\d+)-[0-9a-f]{12}\.(jpg|png|webp)$/;
 export function photoFile(dir, name) {
   const m = NAME_RE.exec(String(name || ""));
   return m ? { path: join(dir, m[0]), mime: KIND_BY_EXT[m[2]].mime } : null;
+}
+
+/** Rows whose file is not on disk: the photo dir moved, or its bytes were lost. */
+export async function missingPhotos(dir, keep) {
+  const absent = [];
+  for (const name of keep) {
+    if (!NAME_RE.test(name)) continue;
+    try {
+      await access(join(dir, name));
+    } catch {
+      absent.push(name);
+    }
+  }
+  return absent;
 }
 
 /** Files on disk that no live row points at (`item_photos`), so a crash cannot leak. */
