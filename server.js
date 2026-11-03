@@ -964,6 +964,10 @@ function openBootDb(cfg) {
 
 if (process.argv[1] && normalize(process.argv[1]) === normalize(fileURLToPath(import.meta.url))) {
   const cfg = loadConfig();
+  // Always name the resolved storage paths: a PHOTO_DIR outside the container's mount
+  // is invisible until the first recreation swallows the uploads, and this line is what
+  // makes /app/photos versus /photos obvious in the log (SPEC.md §10.1).
+  log("info", "storage", { db: cfg.dbPath, photos: cfg.photoDir });
   const db = openBootDb(cfg);
   const oidc = new OidcClient(cfg, log);
   await oidc.init();
@@ -972,7 +976,18 @@ if (process.argv[1] && normalize(process.argv[1]) === normalize(fileURLToPath(im
   try {
     const names = store.photoNames();
     const missing = await missingPhotos(cfg.photoDir, names);
-    if (missing.length) log("warn", "photos.missing", { dir: cfg.photoDir, count: missing.length, sample: missing.slice(0, 5) });
+    if (missing.length) {
+      const detail = { dir: cfg.photoDir, count: missing.length, sample: missing.slice(0, 5) };
+      // Every row missing = the directory is wrong or empty, not a few stray deletes.
+      if (missing.length === names.length) {
+        log("error", "photos.missing", {
+          ...detail,
+          hint: "no row has a file: PHOTO_DIR is probably not the directory that is actually mounted (a relative PHOTO_DIR like ./photos resolves inside the container, not to /photos); fix PHOTO_DIR and restore the files before the bytes are gone",
+        });
+      } else {
+        log("warn", "photos.missing", detail);
+      }
+    }
   } catch (err) {
     log("warn", "photos.audit_failed", { error: String(err && err.message) });
   }

@@ -13,6 +13,9 @@ services:
     env_file: .env
     environment:
       PORT: ${PORT:-8080}
+      # Container paths, not host paths: keep DB_PATH under /data and PHOTO_DIR under
+      # /photos or the app writes outside the mounts and loses the files on recreate.
+      # The host side is DB_DIR / PHOTO_HOST_DIR below.
       DB_PATH: ${DB_PATH:-/data/cosas.db}
       PHOTO_DIR: ${PHOTO_DIR:-/photos}
       TRUST_PROXY: "${TRUST_PROXY:-1}"

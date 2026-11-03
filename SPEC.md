@@ -907,7 +907,18 @@ so the panel stays a grid and the export stays small, not for storage reasons.
   boot counts the rows whose file is absent — `photos.missing` with `dir`, `count`
   and a `sample` of names (`missingPhotos()` in `photos.js`) — right before the
   GC that drops files no row points at. A photo directory that mounts empty under a
-  healthy database shows up in the log on the next start instead of as a bare 404.
+  healthy database shows up in the log on the next start instead of as a bare 404 —
+  and when **every** row is missing, that line is logged at `error` with a hint that
+  `PHOTO_DIR` is not the mounted directory, because a wrong path (not scattered
+  deletes) is what empties a directory wholesale.
+- **Paths are absolute.** `loadConfig()` resolves `DB_PATH` and `PHOTO_DIR`, and boot
+  logs them as `storage` (`{db, photos}`) before anything else, so the log names the
+  real directories instead of a value that only means something relative to the
+  working directory. This is the failure the resolution exists to expose: a relative
+  `PHOTO_DIR=./photos` in the container means `/app/photos`, not the `/photos` bind
+  mount. Uploads succeed, the files live in the writable layer, and the next
+  recreation takes them while the rows survive. `.env.example` and `compose.yaml`
+  spell out that both values are *container* paths that must stay under their mount.
 - **Where it shows.** The register form (§8.2) accepts several photos as part of
   creating the item, which is what the phone "Add" flow needs: scan the sticker, take
   the label photo, take the front photo, save — one form, one round trip. The item
@@ -1198,7 +1209,7 @@ Reserved (404): `/i`, `/api`, `/admin`, anything else not listed.
 | `PORT` | `8080` | |
 | `PUBLIC_ORIGIN` | `https://cosas.hacklab.example` | no trailing slash. Drives QR URLs, redirect URI, cookie `Secure`. |
 | `DB_PATH` | `/data/cosas.db` | inside the container |
-| `PHOTO_DIR` | *(optional)* | where §8.8 image files live; defaults to `dirname(DB_PATH)/photos`. `compose.yaml` sets `/photos` and bind-mounts `${PHOTO_HOST_DIR:-./photos}` there, so the database and the images can be backed up on separate schedules |
+| `PHOTO_DIR` | *(optional)* | where §8.8 image files live; defaults to `dirname(DB_PATH)/photos`. `compose.yaml` sets `/photos` and bind-mounts `${PHOTO_HOST_DIR:-./photos}` there, so the database and the images can be backed up on separate schedules. A **container** path: relative values resolve against the working directory (`./photos` = `/app/photos`, outside the mount), and both resolved paths are logged at boot |
 | `SESSION_SECRET` | `<openssl rand -base64 48>` | |
 | `CODE_SECRET` | `<openssl rand -base64 48>` | **must never change** or all printed stickers die (codes are HMAC'd with it) |
 | `OIDC_DISCOVERY_URL` | `https://idm.hacklab.example/oauth2/openid/cosas/.well-known/openid-configuration` | exact per-client URL |

@@ -1,6 +1,6 @@
 // All settings come from the environment (SPEC.md §10.1). No dotenv dependency:
 // the containers get their values from Compose; local runs get them from the shell.
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export function loadConfig(env = process.env) {
   const num = (key, dflt) => {
@@ -15,9 +15,13 @@ export function loadConfig(env = process.env) {
   return {
     port: num("PORT", 8080),
     publicOrigin: (env.PUBLIC_ORIGIN || "http://localhost:8080").replace(/\/+$/, ""),
-    dbPath: env.DB_PATH || "data/cosas.db",
+    // Paths are absolute so logs and errors never leave the working directory implicit:
+    // a relative PHOTO_DIR=./photos means /app/photos in the container, not /photos,
+    // which silently writes image files outside the bind mount and loses them on the
+    // next recreate. Boot logs both resolved paths (server.js, "storage").
+    dbPath: resolve(env.DB_PATH || "data/cosas.db"),
     // Item photos live next to the database by default (§8.8); PHOTO_DIR overrides.
-    photoDir: env.PHOTO_DIR || join(dirname(env.DB_PATH || "data/cosas.db"), "photos"),
+    photoDir: resolve(env.PHOTO_DIR || join(dirname(env.DB_PATH || "data/cosas.db"), "photos")),
     sessionSecret: env.SESSION_SECRET || "dev-session-secret-that-is-long-enough-000000",
     codeSecret: env.CODE_SECRET || "dev-code-secret-that-is-long-enough-0000000",
     oidcDiscoveryUrl:
