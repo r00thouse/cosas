@@ -16,7 +16,7 @@ import { createStore, Conflict, STATUSES, QTY_MODES } from "./store.js";
 import { normalize as normalizeCode, parse as parseCode, normalizeScan } from "./code.js";
 import { parseSheetQuery, sheetCodes, freshCode, stickerUrl } from "./codes.js";
 import { boundaryOf, parseMultipart, MultipartError } from "./multipart.js";
-import { MAX_PHOTO, MAX_PHOTOS, parseDataUrl, savePhoto, removePhoto, photoFile, sniff, collectGarbage, missingPhotos } from "./photos.js";
+import { MAX_PHOTO, MAX_PHOTOS, parseDataUrl, savePhoto, removePhoto, photoFile, sniff, collectGarbage, missingPhotos, filesOnDisk } from "./photos.js";
 import { makeT, pickLang, LANGS } from "./i18n.js";
 import { sign, unsign, csrfFor, csrfValid, newSecret, clientIp, createLimiter } from "./security.js";
 import { OidcClient, pkcePair, roleDiagnostics, safeNext, OidcError } from "./oidc.js";
@@ -308,7 +308,29 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     send(req, res, 200, "ok", { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
   }
 
-  function handleList(req, res, session, url) {
+  /**
+   * Per-item photo trouble for the list (§8.4), signed-in readers only: no photos
+   * at all, or rows whose files are gone. One directory read for the whole page,
+   * never a stat per item; an entry exists only when there is something to warn
+   * about, so the template can skip the common case.
+   */
+  async function listPhotoWarnings(rows) {
+    const namesByItem = store.photoNamesByItem();
+    const disk = await filesOnDisk(cfg.photoDir);
+    const out = new Map();
+    for (const row of rows) {
+      const names = namesByItem.get(row.id) || [];
+      if (!names.length) {
+        out.set(row.id, { total: 0, missing: 0 });
+        continue;
+      }
+      const missing = names.filter((n) => !disk.has(n)).length;
+      if (missing) out.set(row.id, { total: names.length, missing });
+    }
+    return out;
+  }
+
+  async function handleList(req, res, session, url) {
     const c = ctxFor(req, session);
     const q = (url.searchParams.get("q") || "").trim().slice(0, 100);
     const category = (url.searchParams.get("category") || "").slice(0, 100);
@@ -319,7 +341,8 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     const total = store.countFiltered(opts);
     const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const rows = store.listLive({ ...opts, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
-    sendHtml(req, res, 200, V.listPage(c, { rows, total, page, pages, filters: { q, category, status } }));
+    const photoWarnings = session ? await listPhotoWarnings(rows) : null;
+    sendHtml(req, res, 200, V.listPage(c, { rows, total, page, pages, filters: { q, category, status }, photoWarnings }));
   }
 
   function handleScan(req, res, session, url, codeParam) {

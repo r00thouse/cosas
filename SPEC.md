@@ -774,6 +774,15 @@ Always `deleted_at IS NULL`. Case-insensitive via `LIKE … ESCAPE '\'` with `%`
 "1–50 of 213". Empty state: a translated hint plus, for members, a
 "print stickers" link. Sorting: `updated_at DESC`, fixed — no sort UI in v1.
 
+**Photo integrity hint (§8.8), signed-in readers only.** Each row's name carries
+a warning icon when the item has no photos at all (muted triangle, "No photos"),
+or when some of its `item_photos` rows point at files that are not on disk
+(red triangle, "Photo files missing (n of m)"). This is the state that lost the
+prod photos: rows survive, bytes vanish, the item page just 404s the images.
+Cost per page is one `photoNamesByItem()` query and one `readdir` of the photo
+dir (`filesOnDisk()`), then a set lookup per row — never a `stat` per photo.
+Anonymous visitors get the plain list: they cannot fix anything.
+
 ### 8.5 Autocomplete values
 
 - `category`: fixed seed list (decision Q26):

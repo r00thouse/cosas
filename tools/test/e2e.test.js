@@ -4,7 +4,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -510,6 +510,37 @@ test("photos: multipart register, add several, delete one, access control", asyn
   assert.equal((await c(`/photo/${code}/${ids[1]}`)).status, 200, "the other photo survives");
   // Deleting it twice is a 404, not a crash.
   assert.equal((await c(`/r/${code}/photo/${firstId}/delete`, form({ _csrf: token }))).status, 404);
+});
+
+test("list warns about items without photos and items whose files are gone (§8.4)", async () => {
+  const c = await login("admin");
+  const rowFor = (html, name) => html.split("<tr>").find((r) => r.includes(name)) || "";
+
+  // Item with no photos at all: flagged for the people who can add one.
+  const [bareCode] = codesOf(await c("/codes?n=1"));
+  const bare = await c(`/r/${bareCode}/register`, form({ _csrf: csrfOf(await c(`/r/${bareCode}`)), name: "Cosa sin foto", category: "cable" }));
+  assert.equal(bare.status, 302);
+  const flagged = rowFor((await c("/")).text, "Cosa sin foto");
+  assert.match(flagged, /warn-icon warn-none/);
+  assert.match(flagged, /aria-label="No photos"/);
+
+  // An item whose photo is saved and on disk gets no warning.
+  const [photoCode] = codesOf(await c("/codes?n=1"));
+  const token = csrfOf(await c(`/r/${photoCode}`));
+  assert.equal((await c(`/r/${photoCode}/register`, form({ _csrf: token, name: "Cosa con foto", category: "sbc" }))).status, 302);
+  const added = await c(`/r/${photoCode}/photo`, form({ _csrf: token, photo_data: `data:image/png;base64,${PNG.toString("base64")}` }));
+  assert.equal(added.status, 302);
+  assert.ok(!/warn-icon/.test(rowFor((await c("/")).text, "Cosa con foto")), "a saved photo is fine");
+
+  // Rows survive while the bytes vanish (what happened on prod): the list says so.
+  const photoDir = join(dir, "photos");
+  for (const f of readdirSync(photoDir)) unlinkSync(join(photoDir, f));
+  const lost = rowFor((await c("/")).text, "Cosa con foto");
+  assert.match(lost, /warn-icon warn-lost/);
+  assert.match(lost, /Photo files missing \(1 of 1\)/);
+
+  // Visitors who cannot fix anything get the plain list.
+  assert.ok(!/warn-icon/.test((await client()("/")).text));
 });
 
 test("rate limit: GET /r/* answers 429 with retry-after once the window is full", async () => {

@@ -100,7 +100,13 @@ export function errorPage(c, status, key, extra) {
 
 // ---------------------------------------------------------------- list (§8.4)
 
-export function listPage(c, { rows, total, page, pages, filters, categories, locations }) {
+/** Warning next to an item name: no photos yet, or rows whose files are gone (§8.8). */
+function photoWarn(t, { total, missing }) {
+  const label = total === 0 ? t("list.photo_none") : t("list.photo_lost", { missing, total });
+  return html`<span class="warn-icon ${total === 0 ? "warn-none" : "warn-lost"}" role="img" aria-label="${label}" title="${label}"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 1.7 15 14.3H1z"/><path d="M8 6.2v3.6"/><path d="M8 11.9v.1"/></svg></span>`;
+}
+
+export function listPage(c, { rows, total, page, pages, filters, categories, locations, photoWarnings }) {
   const { t, member, admin } = c;
   const from = rows.length ? (page - 1) * 50 + 1 : 0;
   const to = (page - 1) * 50 + rows.length;
@@ -136,7 +142,7 @@ ${rows.length === 0
   <thead><tr><th>${t("item.name")}</th><th>${t("item.category")}</th><th>${t("item.status")}</th><th>${t("item.location")}</th><th>${t("item.qty")}</th></tr></thead>
   <tbody>${rows.map(
     (r) => html`<tr>
-      <td data-label="${t("item.name")}"><a href="/r/${r.code.toLowerCase()}">${r.name || r.code}</a></td>
+      <td data-label="${t("item.name")}"><a href="/r/${r.code.toLowerCase()}">${r.name || r.code}</a>${photoWarnings?.get(r.id) ? photoWarn(t, photoWarnings.get(r.id)) : raw("")}</td>
       <td data-label="${t("item.category")}">${r.category}</td>
       <td data-label="${t("item.status")}"><span class="badge ${r.status}">${t(`item.status.${r.status}`)}</span></td>
       <td data-label="${t("item.location")}">${r.location}</td>

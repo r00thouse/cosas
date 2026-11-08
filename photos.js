@@ -85,6 +85,15 @@ export async function missingPhotos(dir, keep) {
   return absent;
 }
 
+/** Names present in `dir` as a Set; an unreadable dir reads as empty. One call for a whole page. */
+export async function filesOnDisk(dir) {
+  try {
+    return new Set(await readdir(dir));
+  } catch {
+    return new Set();
+  }
+}
+
 /** Files on disk that no live row points at (`item_photos`), so a crash cannot leak. */
 export async function collectGarbage(dir, keep) {
   let names;

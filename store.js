@@ -182,6 +182,17 @@ export function createStore(db, { log } = {}) {
     return db.prepare("SELECT name FROM item_photos").all().map((r) => r.name);
   }
 
+  /** item_id -> the file names of its photos, for the list's integrity hint (§8.4). */
+  function photoNamesByItem() {
+    const map = new Map();
+    for (const r of db.prepare("SELECT item_id, name FROM item_photos ORDER BY id").all()) {
+      const list = map.get(r.item_id);
+      if (list) list.push(r.name);
+      else map.set(r.item_id, [r.name]);
+    }
+    return map;
+  }
+
   /** item_id -> photo count, for the CSV export. One query, not one per row. */
   function photoCounts() {
     const map = new Map();
@@ -301,6 +312,7 @@ export function createStore(db, { log } = {}) {
     addPhoto,
     removePhoto,
     photoNames,
+    photoNamesByItem,
     photoCounts,
     softDelete,
     restore,

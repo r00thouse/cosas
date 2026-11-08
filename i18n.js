@@ -173,6 +173,8 @@ export const STRINGS = {
   "list.prev": { en: "Previous", es: "Anterior" },
   "list.next": { en: "Next", es: "Siguiente" },
   "list.scan_hint": { en: "Scan a sticker", es: "Escanea una etiqueta" },
+  "list.photo_none": { en: "No photos", es: "Sin fotos" },
+  "list.photo_lost": { en: "Photo files missing ({missing} of {total})", es: "Faltan fotos ({missing} de {total})" },
 
   "codes.title": { en: "Print stickers", es: "Imprimir etiquetas" },
   "codes.count": { en: "How many?", es: "¿Cuántas?" },

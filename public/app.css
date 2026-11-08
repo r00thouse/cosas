@@ -207,6 +207,11 @@ table.list td:first-child a { font-weight: 600; text-decoration: none; }
 .badge.in_use { color: var(--busy); }
 .badge.broken { color: var(--bad); }
 .badge.missing { color: var(--lost); }
+/* List hint (§8.4): an item with no photos, or with rows whose files are gone. */
+.warn-icon { display: inline-block; margin-left: 0.3rem; vertical-align: -0.1em; }
+.warn-icon svg { width: 0.95em; height: 0.95em; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; }
+.warn-icon.warn-none { color: var(--muted); }
+.warn-icon.warn-lost { color: var(--bad); }
 dl.item { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 0.75rem 0; }
 dl.item dt { color: var(--muted); }
 dl.item dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }

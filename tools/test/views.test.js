@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { makeT } from "../../i18n.js";
-import { registerPage, photoPanel } from "../../views.js";
+import { registerPage, photoPanel, listPage } from "../../views.js";
 
 const ctx = (lang = "es") => ({
   t: makeT(lang), lang, session: { name: "a", role: "admin" }, member: true, admin: true, csrf: "x",
@@ -33,4 +33,23 @@ test("photo fields offer the rear camera and the file picker, both as name=photo
   assert.equal((fresh.match(/data-room="8"/g) || []).length, 2);
   const full = String(photoPanel(ctx(), {}, "AAAA000000000001", Array.from({ length: 8 }, (_, i) => ({ id: i + 1 }))));
   assert.equal((full.match(/data-room="0"/g) || []).length, 2);
+});
+test("the list warns about items without photos or whose files are gone (§8.4)", () => {
+  const rows = [
+    { id: 1, code: "AAAA000000000001", name: "Sin fotos", category: "cable", status: "available", location: "", qty: 1 },
+    { id: 2, code: "AAAA000000000002", name: "Perdidas", category: "cable", status: "available", location: "", qty: 1 },
+    { id: 3, code: "AAAA000000000003", name: "Bien", category: "cable", status: "available", location: "", qty: 1 },
+  ];
+  const warnings = new Map([[1, { total: 0, missing: 0 }], [2, { total: 3, missing: 2 }]]);
+  const html = String(listPage(ctx(), { rows, total: 3, page: 1, pages: 1, filters: {}, photoWarnings: warnings }));
+  const rowFor = (name) => html.split("<tr>").find((r) => r.includes(name)) || "";
+  assert.match(rowFor("Sin fotos"), /class="warn-icon warn-none"[^>]*aria-label="Sin fotos"/);
+  assert.match(rowFor("Perdidas"), /class="warn-icon warn-lost"[^>]*aria-label="Faltan fotos \(2 de 3\)"/);
+  assert.equal((html.match(/warn-icon/g) || []).length, 2, "healthy rows carry no icon");
+  assert.ok(!/warn-icon/.test(rowFor("Bien")));
+
+  // Signed-out visitors get the plain list: the hint is for people who can fix it.
+  const anon = String(listPage(ctx(), { rows, total: 3, page: 1, pages: 1, filters: {} }));
+  assert.ok(!/warn-icon/.test(anon));
+  assert.match(String(listPage(ctx("en"), { rows, total: 3, page: 1, pages: 1, filters: {}, photoWarnings: warnings })), /Photo files missing \(2 of 3\)/);
 });
