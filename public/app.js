@@ -110,8 +110,10 @@
    * removing needs no request and no confirmation.
    */
   function attachPhoto(form, data, extra) {
-    var entry = { hidden: addHidden(form, data), tiles: [] };
-    scaled++;
+    // Only the item's add-photo form feeds the "n of 8" camera counter; a
+    // one-photo replace form has its own single slot and must not move it.
+    var entry = { hidden: addHidden(form, data), tiles: [], counted: form.hasAttribute("data-photo-add") };
+    if (entry.counted) scaled++;
     var boxes = [form.querySelector("[data-photo-previews]")].concat(extra || []);
     boxes.forEach(function (box) {
       if (box) entry.tiles.push(photoTile(box, data, entry));
@@ -148,7 +150,7 @@
     entry.tiles.forEach(function (tile) {
       tile.remove();
     });
-    scaled = Math.max(0, scaled - 1);
+    if (entry.counted) scaled = Math.max(0, scaled - 1);
     photosChanged();
   }
 
@@ -299,7 +301,10 @@
         // How many the server will still take for this item (the panel knows).
         var room = parseInt(node.getAttribute("data-room"), 10);
         if (!(room >= 0)) room = MAX_PHOTOS;
-        var batch = images.slice(0, Math.max(0, room - scaled));
+        // Count staged photos in THIS form, not on the page: a replace form's
+        // single slot must stay free even when the add form already holds photos.
+        var staged = form.querySelectorAll('input[name="photo_data"]').length;
+        var batch = images.slice(0, Math.max(0, room - staged));
         // Clearing the input matters: the picked originals must never travel with
         // the form next to their downscaled copies. The input stays, so more photos
         // can be added by picking again.

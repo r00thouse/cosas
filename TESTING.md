@@ -153,6 +153,12 @@ bug report can just say "12.7 fails".
     directly (`/photo/<code>/<id>`) and log out —
     that URL now returns 403. Try uploading a `.txt` renamed to `.jpg`: the server
     sniffs the bytes and answers 422, keeping the old photo.
+    Then simulate lost bytes: delete the item's file from `PHOTO_DIR`. Reload the
+    item: the list says *Photo files missing (1 of 1)*, and the photo tile becomes a
+    placeholder with *Replace photo*. Choose an image, upload, and the same photo URL
+    works again with the same id and position; the list warning is gone. Sending no
+    file or a non-image keeps the row missing; more than one file is refused with
+    *Replace one photo at a time*.
 14. **Add from the phone** (12.24) — click *Add* in the header. The page offers the
     camera and a box to type a code. Type a code from step 4 → you land on its sticker
     page. Visiting `/add` reserves nothing: the code stays unclaimed until you submit

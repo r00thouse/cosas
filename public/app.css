@@ -266,6 +266,13 @@ dl.item dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .photo-grid { list-style: none; margin: 0.75rem 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0.75rem; }
 .photo-grid li { display: flex; flex-direction: column; gap: 0.25rem; margin: 0; }
 .photo-thumb { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: var(--bg-soft, #eee); }
+/* §8.8 recovery: the row survived but its file is gone. The tile becomes a
+   placeholder with a one-photo replace form, so an admin can restore the bytes. */
+.photo-missing { padding: 0.4rem; border: 1px dashed color-mix(in srgb, var(--bad) 55%, var(--line)); border-radius: 8px; }
+.photo-missing-box { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; padding: 0.5rem; border-radius: 6px; border: 1px dashed var(--line); background: var(--bg-soft, #eee); color: var(--bad); font-size: 0.9rem; text-align: center; }
+.photo-missing .photo-replace-pick { display: flex; justify-content: center; margin: 0.5rem 0 0.25rem; text-align: center; }
+.photo-missing .photo-preview-row:empty { display: none; }
+.photo-missing button.primary { width: 100%; margin-top: 0.35rem; }
 .photo-grid form { margin: 0; }
 .photo-grid button.link { font-size: 0.85rem; padding: 0 0 0.15rem; }
 /* "Take photo" / "Choose files": file inputs dressed as buttons (§8.8). The input is

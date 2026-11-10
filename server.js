@@ -291,14 +291,20 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     if (f === "-1") return "action.qty_minus";
     if (f === "photo") return "action.photo_saved";
     if (f === "photo_removed") return "action.photo_removed";
+    if (f === "photo_replaced") return "action.photo_replaced";
     return null;
   }
 
-  function renderItem(req, res, status, session, { item, code, editing = false, confirm = null, errors = null, url = null }) {
+  async function renderItem(req, res, status, session, { item, code, editing = false, confirm = null, errors = null, url = null }) {
     const c = ctxFor(req, session);
     const flash = url ? flashFor(req, url) : null;
     const photos = item ? store.photosOf(item.id) : [];
-    sendHtml(req, res, status, V.itemPage(c, { code, item, photos, flash, errors, editing, confirm }));
+    const missingPhotoIds = new Set();
+    if (session?.role === "admin" && photos.length) {
+      const disk = await filesOnDisk(cfg.photoDir);
+      for (const p of photos) if (!disk.has(p.name)) missingPhotoIds.add(p.id);
+    }
+    sendHtml(req, res, status, V.itemPage(c, { code, item, photos, missingPhotoIds, flash, errors, editing, confirm }));
   }
 
   // ---------------------------------------------------------------- handlers
@@ -366,7 +372,7 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     }
     const editing = session?.role === "admin" && url.searchParams.get("edit") === "1";
     const okConfirm = confirm === "rebind" || confirm === "delete" ? confirm : null;
-    renderItem(req, res, 200, session, { item: r.item, code: r.item.code, editing, confirm: okConfirm, url });
+    return renderItem(req, res, 200, session, { item: r.item, code: r.item.code, editing, confirm: okConfirm, url });
   }
 
   /** `GET /add` (§8.9): the phone's scan page, or the no-JS `?code=` fallback. */
@@ -454,6 +460,37 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     await removePhoto(cfg.photoDir, row.name);
     log("info", "item.photo_remove", { code: item.code, actor: session.sub });
     redirect(res, `${home}?flash=photo_removed`);
+  }
+
+  /**
+   * `POST /r/:code/photo/:photo/replace` (§8.8 recovery): put a new file behind an
+   * existing photo row, keeping its id and position. One photo, written before the
+   * row changes; the old file (usually already gone) is removed afterwards.
+   */
+  async function postPhotoReplace(req, res, session, { code: codeParam, photo: photoParam, form, files }) {
+    const { item } = boundOr410(codeParam);
+    const home = `/r/${item.code.toLowerCase()}`;
+    const row = store.photosOf(item.id).find((p) => p.id === Number(photoParam));
+    if (!row) throw new HttpError(404, "err.not_found");
+    const photos = readPhotos(form, files);
+    if (!photos.length) throw new HttpError(422, "err.bad_photo");
+    if (photos.length > 1) throw new HttpError(422, "err.photo_replace_one");
+    const replacement = photos[0];
+    const name = await savePhoto(cfg.photoDir, item.id, replacement.bytes, replacement.ext);
+    const old = store.replacePhoto(item.id, row.id, item.code, name, session.sub);
+    if (!old) {
+      await removePhoto(cfg.photoDir, name);
+      throw new HttpError(404, "err.not_found");
+    }
+    await removePhoto(cfg.photoDir, old.name);
+    log("info", "item.photo_replace", {
+      code: item.code,
+      photo: row.id,
+      from: old.name,
+      to: name,
+      actor: session.sub,
+    });
+    redirect(res, `${home}?flash=photo_replaced`);
   }
 
   /** `GET /photo/:code/:photo` (§8.8): the bytes of one photo, admins only. */
@@ -788,6 +825,7 @@ export function createApp(cfg, { db, oidc, now = () => Date.now() }) {
     ["POST", "/r/:code/status", postStatus, "member"],
     ["POST", "/r/:code/qty", postQty, "member"],
     ["POST", "/r/:code/photo", postPhoto, "member"],
+    ["POST", "/r/:code/photo/:photo/replace", postPhotoReplace, "member"],
     ["POST", "/r/:code/photo/:photo/delete", postPhotoDelete, "member"],
     ["POST", "/r/:code/rebind", postRebind, "member"],
     ["POST", "/r/:code/delete", postDelete, "member"],

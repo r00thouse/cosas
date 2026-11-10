@@ -539,6 +539,53 @@ test("list warns about items without photos and items whose files are gone (§8.
   assert.match(lost, /warn-icon warn-lost/);
   assert.match(lost, /Photo files missing \(1 of 1\)/);
 
+  // The item page no longer shows a broken image: the row offers an in-place
+  // replacement with one slot, and the panel repeats the count (§8.8 recovery).
+  const missingPage = await c(`/r/${photoCode}`);
+  const lostId = (missingPage.text.match(/action="\/r\/[^"]+\/photo\/(\d+)\/replace"/) || [])[1];
+  assert.ok(lostId, "the missing photo has a replace form");
+  assert.match(missingPage.text, /Photo file missing/);
+  assert.match(missingPage.text, /Photo files missing \(1 of 1\)/);
+  assert.match(missingPage.text, /data-room="1"/);
+  assert.doesNotMatch(missingPage.text, new RegExp(`<img class="photo-thumb" src="/photo/${photoCode}/${lostId}"`));
+  const replace = `/r/${photoCode}/photo/${lostId}/replace`;
+
+  // Zero, invalid, or several files leave the row exactly as it was.
+  assert.equal((await c(replace, form({ _csrf: token }))).status, 422);
+  assert.equal(
+    (await c(replace, form({ _csrf: token, photo_data: `data:image/png;base64,${Buffer.from("not a png").toString("base64")}` }))).status,
+    422,
+  );
+  const several = new URLSearchParams();
+  several.append("_csrf", token);
+  several.append("photo_data", `data:image/png;base64,${PNG.toString("base64")}`);
+  several.append("photo_data", `data:image/png;base64,${PNG.toString("base64")}`);
+  const oneAtATime = await c(replace, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: several.toString(),
+  });
+  assert.equal(oneAtATime.status, 422);
+  assert.match(oneAtATime.text, /Replace one photo at a time/);
+  assert.equal((await c(`/photo/${photoCode}/${lostId}`)).status, 404, "refused replacements keep the file missing");
+
+  // A valid replacement restores the bytes under the SAME photo id and clears
+  // both warnings; the row was never deleted and re-added.
+  const fixed = await c(replace, form({ _csrf: token, photo_data: `data:image/jpeg;base64,${JPEG.toString("base64")}` }));
+  assert.equal(fixed.status, 302);
+  assert.equal(fixed.headers.get("location"), `/r/${photoCode.toLowerCase()}?flash=photo_replaced`);
+  const bytes = await c(`/photo/${photoCode}/${lostId}`);
+  assert.equal(bytes.status, 200);
+  assert.match(bytes.headers.get("content-type"), /image\/jpeg/);
+  const repaired = (await c(`/r/${photoCode}`)).text;
+  assert.match(repaired, new RegExp(`<img class="photo-thumb" src="/photo/${photoCode}/${lostId}"`));
+  assert.doesNotMatch(repaired, /Photo file missing/);
+  assert.ok(!/warn-icon/.test(rowFor((await c("/")).text, "Cosa con foto")), "the list warning is gone");
+
+  // A photo id that is not this item's is a 404; writes still need a session.
+  assert.equal((await c(`/r/${photoCode}/photo/999999/replace`, form({ _csrf: token }))).status, 404);
+  assert.equal((await client()(replace, form({ _csrf: token }))).status, 403);
+
   // Visitors who cannot fix anything get the plain list.
   assert.ok(!/warn-icon/.test((await client()("/")).text));
 });

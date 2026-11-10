@@ -194,7 +194,7 @@ export const paddedCode = (input) => {
 
 // ------------------------------------------------- public view / action sheet (§8.3)
 
-export function itemPage(c, { code, item, photos = [], flash, errors, editing, confirm }) {
+export function itemPage(c, { code, item, photos = [], missingPhotoIds = new Set(), flash, errors, editing, confirm }) {
   const { t, admin } = c;
   const publicPart = html`
 <h1>${item.name || item.category || prettyCode(code)}</h1>
@@ -210,7 +210,7 @@ export function itemPage(c, { code, item, photos = [], flash, errors, editing, c
   let memberPart = raw("");
   if (admin) {
     memberPart = html`
-${photoPanel(c, item, code, photos)}
+${photoPanel(c, item, code, photos, missingPhotoIds)}
 <section class="panel">
 <h2>${t("item.name")}: ${item.name}</h2>
 <dl class="item">
@@ -271,17 +271,36 @@ export function fmtDate(lang, iso) {
   }
 }
 
-/** The item's photo plus its one upload form (§8.8). Admins only, like the panel. */
-export function photoPanel(c, item, code, photos = []) {
+/** The item's photos, missing-file recovery, and its one upload form (§8.8). */
+export function photoPanel(c, item, code, photos = [], missingPhotoIds = new Set()) {
   const { t } = c;
   const base = `/photo/${code.toLowerCase()}`;
+  const missing = photos.filter((p) => missingPhotoIds.has(p.id)).length;
   return html`
 <section class="panel photo-panel">
 <h2>${t("item.photo")}</h2>
+${missing
+  ? html`<p class="hint photo-missing-hint">${t("list.photo_lost", { missing, total: photos.length })}</p>`
+  : raw("")}
 ${photos.length
   ? html`<ul class="photo-grid">
-${photos.map(
-  (p) => html`<li>
+${photos.map((p) =>
+  missingPhotoIds.has(p.id)
+    ? html`<li class="photo-missing">
+<div class="photo-missing-box" role="img" aria-label="${t("photo.missing")}"><span>${t("photo.missing")}</span></div>
+<form method="post" action="/r/${code.toLowerCase()}/photo/${p.id}/replace" enctype="multipart/form-data">
+${csrfField(c)}
+<label class="button photo-replace-pick" for="photo-replace-${p.id}">${t("photo.replace")}</label>
+<input class="sr-only" id="photo-replace-${p.id}" name="photo" type="file" accept="image/jpeg,image/png,image/webp" data-room="1">
+<div class="photo-preview-row" data-photo-previews data-msg-remove="${t("photo.remove")}"></div>
+<button class="primary" type="submit">${t("photo.upload")}</button>
+</form>
+<form method="post" action="/r/${code.toLowerCase()}/photo/${p.id}/delete">
+${csrfField(c)}
+<button class="link danger" type="submit">${t("photo.delete")}</button>
+</form>
+</li>`
+    : html`<li>
 <a href="${base}/${p.id}"><img class="photo-thumb" src="${base}/${p.id}" alt="${t("item.photo")}" loading="lazy"></a>
 <form method="post" action="/r/${code.toLowerCase()}/photo/${p.id}/delete">
 ${csrfField(c)}
@@ -291,7 +310,7 @@ ${csrfField(c)}
 )}
 </ul>`
   : html`<p class="hint">${t("photo.none")}</p>`}
-<form method="post" action="/r/${code.toLowerCase()}/photo" enctype="multipart/form-data">
+<form method="post" action="/r/${code.toLowerCase()}/photo" enctype="multipart/form-data" data-photo-add>
 ${csrfField(c)}
 <label for="photo-file">${photos.length ? t("photo.add_more") : t("photo.add")}</label>
 ${photoPickers(c, "photo-file", Math.max(0, MAX_PHOTOS - photos.length))}

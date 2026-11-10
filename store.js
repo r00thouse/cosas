@@ -27,6 +27,7 @@ export function createStore(db, { log } = {}) {
     photosOf: db.prepare("SELECT id, name, created_at FROM item_photos WHERE item_id = ? ORDER BY id"),
     photoById: db.prepare("SELECT id, name FROM item_photos WHERE id = ? AND item_id = ?"),
     insertPhoto: db.prepare("INSERT INTO item_photos (item_id, name, created_at) VALUES (?, ?, ?)"),
+    updatePhoto: db.prepare("UPDATE item_photos SET name = ? WHERE id = ?"),
     deletePhoto: db.prepare("DELETE FROM item_photos WHERE id = ?"),
     insertCode: db.prepare("INSERT INTO item_codes (code, item_id, created_at) VALUES (?, ?, ?)"),
     forgetCode: db.prepare("INSERT INTO forgotten_codes (code, reason, at) VALUES (?, ?, ?)"),
@@ -164,6 +165,20 @@ export function createStore(db, { log } = {}) {
     db.prepare("UPDATE items SET updated_at = ? WHERE id = ?").run(now, itemId);
     audit(code, "photo_add", actor, null, { name }, now);
     return stmt.photosOf.all(itemId);
+  }
+
+  /**
+   * Point one photo row at a freshly written file (§8.8 recovery). The row keeps its
+   * id and position; returns the old row so the caller can delete the replaced file.
+   */
+  function replacePhoto(itemId, photoId, code, name, actor) {
+    const row = stmt.photoById.get(Number(photoId), itemId);
+    if (!row) return null;
+    const now = nowIso();
+    stmt.updatePhoto.run(String(name), row.id);
+    db.prepare("UPDATE items SET updated_at = ? WHERE id = ?").run(now, itemId);
+    audit(code, "photo_replace", actor, { name: row.name }, { name }, now);
+    return row;
   }
 
   /** Detach one photo; returns the removed row (so the caller can delete the file). */
@@ -310,6 +325,7 @@ export function createStore(db, { log } = {}) {
     setQty,
     photosOf,
     addPhoto,
+    replacePhoto,
     removePhoto,
     photoNames,
     photoNamesByItem,

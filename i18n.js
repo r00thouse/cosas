@@ -92,6 +92,8 @@ export const STRINGS = {
   "photo.none": { en: "No photo yet.", es: "Todavía no hay foto." },
   "photo.add_more": { en: "Add another photo", es: "Agregar otra foto" },
   "photo.delete": { en: "Delete photo", es: "Borrar foto" },
+  "photo.missing": { en: "Photo file missing", es: "Falta el archivo de la foto" },
+  "photo.replace": { en: "Replace photo", es: "Reemplazar foto" },
   "photo.add": { en: "Take or choose a photo", es: "Tomar o elegir una foto" },
   "photo.upload": { en: "Upload", es: "Subir" },
   "photo.take": { en: "Take photo", es: "Tomar foto" },
@@ -161,6 +163,7 @@ export const STRINGS = {
   "action.new_with_new_code": { en: "New item with a new code", es: "Cosa nueva con un código nuevo" },
   "action.photo_saved": { en: "Photo saved.", es: "Foto guardada." },
   "action.photo_removed": { en: "Photo deleted.", es: "Foto borrada." },
+  "action.photo_replaced": { en: "Photo replaced.", es: "Foto reemplazada." },
 
   "list.search_placeholder": { en: "Search", es: "Buscar" },
   "list.filter_category": { en: "Category", es: "Categoría" },
@@ -206,6 +209,10 @@ export const STRINGS = {
   "err.bad_photo": {
     en: "That file is not a JPEG, PNG or WebP image.",
     es: "Ese archivo no es una imagen JPEG, PNG o WebP.",
+  },
+  "err.photo_replace_one": {
+    en: "Replace one photo at a time.",
+    es: "Reemplaza una foto a la vez.",
   },
   "err.photo_too_big": { en: "The photo is larger than 8 MB.", es: "La foto pesa más de 8 MB." },
   "err.photo_limit": {

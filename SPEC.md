@@ -675,6 +675,7 @@ a redirect. All HTML responses are `text/html; charset=utf-8`.
 | 20 | `GET /add` | member | Phone add page (§8.9): the camera QR scanner plus a typed-code fallback. `?code=` is normalized and validated → `302 /r/<code>`; anything invalid → `422 scan.not_found` rendered on the same page. |
 | 21 | `POST /r/:code/photo` | member | Attach the photos of one pick (§8.8): one or more `photo` file parts and/or repeated `photo_data` fields (downscaled data URLs). Every photo in the body is saved, up to the item's remaining slots. 413 `err.photo_too_big`, 422 `err.bad_photo`, 422 `err.photo_limit` when the body would take the item past 8 — then **nothing** of it is saved — 302 back to the item with `?flash=photo`. |
 | 22 | `POST /r/:code/photo/:photo/delete` | member | Delete one photo and its file (§8.8). 404 for a photo id that is not this item's. 302 with `?flash=photo_removed`. |
+| 22a | `POST /r/:code/photo/:photo/replace` | member | Replace the file behind one existing photo row, keeping its id and position (§8.8 recovery). Takes exactly one `photo` file part or `photo_data` field: 404 for a photo id that is not this item's, 422 `err.bad_photo` for no/invalid image, 422 `err.photo_replace_one` when more than one is sent. 302 with `?flash=photo_replaced`. |
 | 22b | `GET /photo/:code/:photo` | member | The bytes of one photo with its real `Content-Type`, `cache-control: private, max-age=300`. 404 when that photo does not exist. |
 | 23 | `GET /manifest.webmanifest` | anon | The PWA manifest (§8.10), `application/manifest+json`, `cache-control: no-cache`. |
 | 24 | `GET /sw.js` | anon | The service worker (§8.10) at the origin root so its scope is `/`, `text/javascript; charset=utf-8`, `cache-control: no-cache`. |
@@ -920,6 +921,16 @@ so the panel stays a grid and the export stays small, not for storage reasons.
   and when **every** row is missing, that line is logged at `error` with a hint that
   `PHOTO_DIR` is not the mounted directory, because a wrong path (not scattered
   deletes) is what empties a directory wholesale.
+- **Recovery is in place.** Because the row is the source of truth, a missing file
+  can be fixed without losing the photo's slot: the item panel marks each affected
+  tile with a placeholder and a one-photo `[Replace photo]` form
+  (`POST /r/:code/photo/:photo/replace`). The new bytes are written first, then the
+  row's `name` is updated in place (same id, same order), then the old file is
+  removed best-effort; `replacePhoto()` in `store.js` audits the change as
+  `photo_replace`. The panel repeats the list's count hint
+  (`Photo files missing (n of m)`), so an admin can see how many still need a file.
+  The add-photo form is separate: it appends a row, while replace only restores the
+  bytes behind an existing one.
 - **Paths are absolute.** `loadConfig()` resolves `DB_PATH` and `PHOTO_DIR`, and boot
   logs them as `storage` (`{db, photos}`) before anything else, so the log names the
   real directories instead of a value that only means something relative to the
@@ -934,7 +945,9 @@ so the panel stays a grid and the export stays small, not for storage reasons.
   page (§8.3) has a photo panel: a grid of square thumbnails
   (each linked to the full-size bytes, each with its own `[Delete photo]` form), then
   `[Take or choose a photo]` / `[Add another photo]`, `[Upload]`, and a local preview
-  via `[data-photo-preview]`. Deleting one photo never touches the others.
+  via `[data-photo-preview]`. A photo whose file is gone keeps its tile but shows
+  `[Replace photo]` instead of a broken image (§8.8 recovery). Deleting one photo
+  never touches the others.
 - **Two pickers.** Both places offer `[Take photo]` and `[Choose files]`: two
   `name="photo"` file inputs dressed as buttons (`photoPickers()` in `views.js`).
   `[Take photo]` has `accept="image/*" capture="environment"`, so a phone opens its
@@ -1096,7 +1109,8 @@ add.camera_denied, add.unsupported, add.scanning, add.not_ours, add.manual,
 add.continue, add.https_hint
 item.name, item.category, item.model, item.serial, item.location, item.status,
 item.held_by, item.qty, item.notes, item.created, item.updated, item.photo
-photo.none, photo.add, photo.add_more, photo.delete, photo.upload, photo.hint
+photo.none, photo.add, photo.add_more, photo.delete, photo.missing, photo.replace,
+photo.upload, photo.hint
 crop.rotate, crop.whole, crop.apply, crop.cancel
 item.status.available, item.status.in_use, item.status.broken, item.status.missing
 form.field_required, form.register, form.save, form.cancel, form.notes_placeholder,
@@ -1105,7 +1119,8 @@ form.name_placeholder, form.model_placeholder, form.serial_placeholder,
 form.held_by_placeholder, form.location_placeholder, form.category_placeholder
 action.edit, action.set_status, action.qty_plus, action.qty_minus, action.qty_set,
 action.rebind, action.rebind_confirm, action.rebind_new_code, action.delete,
-action.delete_confirm, action.restore, action.new_with_new_code, action.photo_saved, action.photo_removed
+action.delete_confirm, action.restore, action.new_with_new_code, action.photo_saved,
+action.photo_removed, action.photo_replaced
 list.title, list.search_placeholder, list.filter_category, list.filter_status,
 list.filter_all, list.clean, list.empty, list.empty_member, list.range, list.prev,
 list.next, list.scan_hint
@@ -1113,7 +1128,7 @@ codes.title, codes.count, codes.generate, codes.view, codes.print, codes.new_she
 codes.download_svg, codes.download_sticker, codes.sticker_text
 err.csrf, err.rate_limited, err.code_taken, err.code_invalid, err.field_required,
 err.qty_range, err.not_found, err.range, err.forbidden, err.internal,
-err.bad_photo, err.photo_too_big, err.photo_limit
+err.bad_photo, err.photo_replace_one, err.photo_too_big, err.photo_limit
 
 footer.made_by
 ```
@@ -1192,6 +1207,7 @@ and the request id.
 /r/:code                  scan landing (register OR item view+actions)
 /r/:code/photo            POST, attach one more photo
 /r/:code/photo/:id/delete POST, delete one photo
+/r/:code/photo/:id/replace POST, replace a missing photo's file (same id)
 /add                      phone add page (camera scanner, ?code= redirect)
 /items/new                POST, create item with a fresh code
 /codes                    print sheet (?n=)

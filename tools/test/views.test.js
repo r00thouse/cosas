@@ -34,6 +34,20 @@ test("photo fields offer the rear camera and the file picker, both as name=photo
   const full = String(photoPanel(ctx(), {}, "AAAA000000000001", Array.from({ length: 8 }, (_, i) => ({ id: i + 1 }))));
   assert.equal((full.match(/data-room="0"/g) || []).length, 2);
 });
+
+test("a photo whose file is missing offers an in-place replace form (§8.8)", () => {
+  const photos = [{ id: 4 }, { id: 5 }];
+  const html = String(photoPanel(ctx(), {}, "AAAA000000000001", photos, new Set([5])));
+  assert.match(html, /Faltan fotos \(1 de 2\)/, "the panel repeats the missing count");
+  assert.match(html, /Falta el archivo de la foto/);
+  assert.match(html, /Reemplazar foto/);
+  assert.match(html, /action="\/r\/aaaa000000000001\/photo\/5\/replace"/);
+  assert.equal((html.match(/data-room="1"/g) || []).length, 1, "one slot for one replacement");
+  assert.ok(/<img class="photo-thumb" src="\/photo\/[^"]+\/4"/.test(html), "the healthy photo still renders");
+  assert.ok(!/src="\/photo\/[^"]+\/5"/.test(html), "the missing photo is a placeholder, not a broken image");
+  const inputs = html.match(/<input[^>]*type="file"[^>]*>/g) || [];
+  assert.equal(inputs.length, 3, "camera + files on the add form, one on replace");
+});
 test("the list warns about items without photos or whose files are gone (§8.4)", () => {
   const rows = [
     { id: 1, code: "AAAA000000000001", name: "Sin fotos", category: "cable", status: "available", location: "", qty: 1 },
