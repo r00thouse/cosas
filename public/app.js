@@ -567,6 +567,22 @@
     }
   }
 
+  // Radio groups (status, qty mode) are chips styled through the checked state.
+  // Chromium 83 has no :has(), so app.js mirrors :checked onto a "checked" class.
+  function wireRadioChips() {
+    var labels = document.querySelectorAll("fieldset label.radio");
+    function sync(label) {
+      var input = label.querySelector('input[type="radio"]');
+      if (input) label.classList.toggle("checked", input.checked);
+    }
+    for (var i = 0; i < labels.length; i++) sync(labels[i]);
+    document.addEventListener("change", function (ev) {
+      var input = ev.target;
+      if (!input || input.type !== "radio") return;
+      for (var j = 0; j < labels.length; j++) sync(labels[j]);
+    });
+  }
+
   // Print button: the sheet is already laid out for A4 (§8.7).
   var printBtn = document.querySelector("button[data-print]");
   if (printBtn) printBtn.addEventListener("click", function () { window.print(); });
@@ -584,4 +600,5 @@
   wirePhoto();
   wireCamera();
   wireCombo();
+  wireRadioChips();
 })();

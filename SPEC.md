@@ -47,6 +47,7 @@ so that an implementer can build it without making design decisions of their own
 | Rule | Value |
 |---|---|
 | Runtime | Node.js ≥ 24 (uses built-in `node:sqlite`) |
+| Browser baseline | **Chromium 83** (Chrome/Edge 83, Android WebView 83): no optional chaining or nullish coalescing in browser JS, and no `color-mix()`, `:has()`, `aspect-ratio`, `inset` shorthand, `dvh` units or flexbox `gap` in CSS. `tools/test/browser.test.js` fails on those; use margins/extra wrapper hairlines instead. |
 | Dependencies | **Three** browser-side components, nothing else: `qrcode-generator` (render stickers), `jsqr` (read them from the camera), `cropperjs` (the optional crop step, §8.8). All three are vendored from `node_modules/` and served as plain `<script>`/`<link>` for a page under `/vendor/`; pinned in `package-lock.json`. No framework, no bundler, no transpile step, no dev-dependency toolchain. |
 | Source layout | Flat files in the repo root: `server.js`, `oidc.js`, `code.js`, `store.js`, `i18n.js`, `html.js`; plus `db/migrations/`, `public/`, `tools/`. No bundler, no transpile step. See §13 for build order. |
 | DB | Single SQLite file, `DB_PATH`, synchronous access via `DatabaseSync`. |

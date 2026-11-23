@@ -14,6 +14,12 @@
   --busy: #1b4f8a;
   --bad: #8a2b1b;
   --lost: #6b5a12;
+  /* Chromium 83 baseline: no color-mix(), so the mixed shades are precomputed. */
+  --bad-line: #d3b4ad;
+  --accent-soft: #e4ede8;
+  --accent-soft-strong: #d6e5dd;
+  --placeholder: #8b8f95;
+  --bg-translucent: rgba(246, 246, 243, 0.92);
   --radius: 10px;
   --radius-sm: 8px;
   /* The side gutter. Thin on purpose on a phone: content uses the screen width. */
@@ -32,6 +38,11 @@
     --busy: #8fbdf0;
     --bad: #f0a08f;
     --lost: #e4cf7c;
+    --bad-line: #6f4a42;
+    --accent-soft: #22352b;
+    --accent-soft-strong: #2a4034;
+    --placeholder: #80858a;
+    --bg-translucent: rgba(18, 19, 20, 0.92);
   }
 }
 * { box-sizing: border-box; }
@@ -46,6 +57,8 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 a { color: var(--accent); text-underline-offset: 0.15em; }
+/* Chromium 83 has no flex `gap`: spacing between flex children is done with
+   margins below. Grid containers still use `gap` (supported since Chrome 57). */
 h1 { font-size: 1.35rem; line-height: 1.25; margin: 0 0 0.5rem; }
 h2 { font-size: 1.05rem; margin: 0 0 0.6rem; }
 .wrap { max-width: 52rem; margin: 0 auto; padding: 0.75rem var(--gutter) 3rem; }
@@ -54,7 +67,6 @@ h2 { font-size: 1.05rem; margin: 0 0 0.6rem; }
 .top {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem 1rem;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--line);
@@ -70,8 +82,10 @@ h2 { font-size: 1.05rem; margin: 0 0 0.6rem; }
   letter-spacing: -0.01em;
   text-decoration: none;
   color: var(--fg);
+  margin-bottom: 0.4rem;
 }
-nav { display: flex; flex-wrap: wrap; gap: 0.4rem 0.75rem; align-items: center; }
+nav { display: flex; flex-wrap: wrap; align-items: center; }
+nav + nav { margin-left: 1rem; }
 nav form { display: inline; }
 .nav-main a {
   text-decoration: none;
@@ -83,7 +97,9 @@ nav form { display: inline; }
 }
 .nav-main { order: 2; flex: 1 1 auto; }
 .nav-account { order: 3; font-size: 0.9rem; }
-.lang { display: inline-flex; gap: 0.25rem; }
+.nav-account > * + * { margin-left: 0.75rem; }
+.lang { display: inline-flex; }
+.lang > * + * { margin-left: 0.25rem; }
 .subtitle { color: var(--muted); margin: 0 0 1rem; }
 footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 2rem; padding-top: 0.75rem; font-size: 0.85rem; }
 
@@ -108,8 +124,17 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* Chromium 83 has no :focus-visible; keep a visible focus ring there rather than
+   relying on :focus, which would also ring every mouse click in new browsers. */
+@supports not selector(:focus-visible) {
+  button:focus, .button:focus, a:focus,
+  input:focus, select:focus, textarea:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+}
 button.primary, .button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-button.danger, .button.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+button.danger, .button.danger { color: var(--bad); border-color: var(--bad-line); }
 button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; font-weight: 400; }
 button.link.current { color: var(--fg); text-decoration: none; font-weight: 600; }
 button.link.danger { color: var(--bad); }
@@ -125,8 +150,21 @@ input, select, textarea {
   background: var(--surface);
   color: var(--fg);
 }
-input::placeholder, textarea::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
+input::placeholder, textarea::placeholder { color: var(--placeholder); }
 input[type="file"] { padding: 0.35rem; }
+/* Chrome 83 only knows the -webkit- pseudo-element; the standard one is a later
+   alias, so both are spelled out (an unknown selector in a list would drop it all). */
+input[type="file"]::-webkit-file-upload-button {
+  font: inherit;
+  font-weight: 500;
+  margin-right: 0.75rem;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
 input[type="file"]::file-selector-button {
   font: inherit;
   font-weight: 500;
@@ -142,13 +180,13 @@ textarea { min-height: 5rem; resize: vertical; }
 fieldset { border: 0; padding: 0; margin: 0.75rem 0 0; min-width: 0; }
 legend { color: var(--muted); font-size: 0.9rem; padding: 0; margin-bottom: 0.35rem; }
 /* Radio groups (status, qty mode) read as a row of chips: one tap, clear state. */
-fieldset { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+fieldset { display: flex; flex-wrap: wrap; }
+fieldset > * { margin: 0.2rem 0.4rem 0.2rem 0; }
 fieldset legend { flex: 1 1 100%; }
 fieldset label.radio {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  margin: 0;
+  margin: 0.2rem 0.4rem 0.2rem 0;
   padding: 0.4rem 0.8rem;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -157,17 +195,19 @@ fieldset label.radio {
   font-size: 1rem;
   cursor: pointer;
 }
-fieldset label.radio:has(input:checked) {
+/* app.js mirrors :checked onto the label (Chromium 83 has no :has()). */
+fieldset label.radio.checked {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  background: var(--accent-soft);
   font-weight: 500;
 }
-fieldset input[type="radio"] { width: auto; margin: 0; accent-color: var(--accent); }
-.row { display: flex; gap: 0.5rem; align-items: end; flex-wrap: wrap; }
-.row > * { flex: 1 1 10rem; }
+fieldset input[type="radio"] { width: auto; margin: 0 0.4rem 0 0; accent-color: var(--accent); }
+.row { display: flex; align-items: end; flex-wrap: wrap; }
+.row > * { flex: 1 1 10rem; margin: 0 0.5rem 0.5rem 0; }
 .row > button { flex: 0 0 auto; }
-.actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.75rem 0; }
-.actions form { margin: 0; }
+.actions { display: flex; flex-wrap: wrap; margin: 0.75rem 0; }
+.actions > * { margin: 0 0.5rem 0.5rem 0; }
+.actions form { margin: 0 0.5rem 0.5rem 0; }
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -197,11 +237,12 @@ table.list th, table.list td { text-align: left; padding: 0.55rem 0.6rem; border
 table.list tr:last-child td { border-bottom: 0; }
 table.list th { color: var(--muted); font-weight: 500; font-size: 0.85rem; }
 table.list td:first-child a { font-weight: 600; text-decoration: none; }
-.filters { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: end; margin: 0 0 1rem; }
+.filters { display: flex; flex-wrap: wrap; align-items: end; margin: 0 0 0.5rem; }
 .filters label { margin-top: 0; }
-.filters > * { flex: 1 1 9rem; }
+.filters > * { flex: 1 1 9rem; margin: 0 0.5rem 0.5rem 0; }
 .filters > button, .filters > .button { flex: 0 0 auto; }
-.pager { display: flex; gap: 0.75rem; align-items: center; justify-content: center; margin-top: 1rem; color: var(--muted); }
+.pager { display: flex; align-items: center; justify-content: center; margin-top: 1rem; color: var(--muted); }
+.pager > * + * { margin-left: 0.75rem; }
 .badge { display: inline-block; font-size: 0.85rem; line-height: 1.4; border: 1px solid currentColor; border-radius: 999px; padding: 0 0.55rem; white-space: nowrap; }
 .badge.available { color: var(--ok); }
 .badge.in_use { color: var(--busy); }
@@ -214,12 +255,15 @@ table.list td:first-child a { font-weight: 600; text-decoration: none; }
 .warn-icon.warn-lost { color: var(--bad); }
 dl.item { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 0.75rem 0; }
 dl.item dt { color: var(--muted); }
-dl.item dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+dl.item dd { margin: 0; white-space: pre-wrap; overflow-wrap: break-word; }
 .qr, svg.qr { width: 8rem; height: 8rem; }
-.qty-controls { display: inline-flex; gap: 0.35rem; align-items: center; }
-.qty-controls form { display: inline-flex; gap: 0.35rem; }
+.qty-controls { display: inline-flex; align-items: center; }
+.qty-controls > * + * { margin-left: 0.35rem; }
+.qty-controls form { display: inline-flex; }
+.qty-controls form > * + * { margin-left: 0.35rem; }
 .qty-controls input[type="number"] { width: 6rem; }
-.code-panel { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+.code-panel { display: flex; align-items: center; flex-wrap: wrap; }
+.code-panel > * { margin: 0 1rem 0 0; }
 .code-panel .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.1rem; }
 .code-panel svg.qr { background: #fff; padding: 0.25rem; border-radius: 6px; }
 
@@ -241,19 +285,21 @@ dl.item dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 }
 .sticker svg, .sticker img { width: 5rem; height: 5rem; image-rendering: pixelated; }
 .sticker .text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; line-height: 1.2; white-space: pre; }
-.sticker .host { font-size: 0.62rem; color: var(--muted); margin-top: 0.2rem; overflow-wrap: anywhere; }
-.sheet-form { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: end; margin-bottom: 0.5rem; }
-.sheet-form > * { flex: 0 0 8rem; }
+.sticker .host { font-size: 0.62rem; color: var(--muted); margin-top: 0.2rem; overflow-wrap: break-word; }
+.sheet-form { display: flex; flex-wrap: wrap; align-items: end; margin-bottom: 0.5rem; }
+.sheet-form > * { flex: 0 0 8rem; margin: 0 0.75rem 0.5rem 0; }
 .sheet-form > button { flex: 0 0 auto; }
 
-/* §8.9: add-by-phone scanner. The video keeps a 4:3 box so the page does not jump
-   when the camera starts; the status line switches from hint to error text. */
+/* §8.9: add-by-phone scanner. The video keeps a fixed-height box so the page does
+   not jump when the camera starts; the status line switches from hint to error text. */
 .scanner { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.9rem 1rem; margin: 1rem 0; }
 .scanner .hint { margin: 0 0 0.5rem; }
 .scanner-video {
   display: block;
   width: 100%;
-  aspect-ratio: 4 / 3;
+  /* Chromium 83 has no aspect-ratio: a fixed camera box keeps the page from
+     jumping when the stream starts. */
+  height: 60vh;
   max-height: 60vh;
   object-fit: cover;
   background: #000;
@@ -264,12 +310,13 @@ dl.item dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* §8.8: the item photo grid and the local preview of a picked file */
 .photo-grid { list-style: none; margin: 0.75rem 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0.75rem; }
-.photo-grid li { display: flex; flex-direction: column; gap: 0.25rem; margin: 0; }
-.photo-thumb { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: var(--bg-soft, #eee); }
+.photo-grid li { display: flex; flex-direction: column; margin: 0; }
+.photo-grid li > * + * { margin-top: 0.25rem; }
+.photo-thumb { display: block; width: 100%; height: 9rem; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: var(--bg-soft, #eee); }
 /* §8.8 recovery: the row survived but its file is gone. The tile becomes a
    placeholder with a one-photo replace form, so an admin can restore the bytes. */
-.photo-missing { padding: 0.4rem; border: 1px dashed color-mix(in srgb, var(--bad) 55%, var(--line)); border-radius: 8px; }
-.photo-missing-box { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; padding: 0.5rem; border-radius: 6px; border: 1px dashed var(--line); background: var(--bg-soft, #eee); color: var(--bad); font-size: 0.9rem; text-align: center; }
+.photo-missing { padding: 0.4rem; border: 1px dashed var(--bad-line); border-radius: 8px; }
+.photo-missing-box { display: flex; align-items: center; justify-content: center; height: 9rem; padding: 0.5rem; border-radius: 6px; border: 1px dashed var(--line); background: var(--bg-soft, #eee); color: var(--bad); font-size: 0.9rem; text-align: center; }
 .photo-missing .photo-replace-pick { display: flex; justify-content: center; margin: 0.5rem 0 0.25rem; text-align: center; }
 .photo-missing .photo-preview-row:empty { display: none; }
 .photo-missing button.primary { width: 100%; margin-top: 0.35rem; }
@@ -288,8 +335,9 @@ dl.item dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   white-space: nowrap;
   border: 0;
 }
-.photo-pick { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.photo-pick label { margin: 0; flex: 1 1 9rem; position: relative; display: inline-flex; align-items: center; justify-content: center; }
+.photo-pick { display: flex; flex-wrap: wrap; }
+.photo-pick > * { margin: 0 0.5rem 0.5rem 0; }
+.photo-pick label { margin: 0 0.5rem 0.5rem 0; flex: 1 1 9rem; position: relative; display: inline-flex; align-items: center; justify-content: center; }
 .photo-pick label.primary { color: var(--on-accent); }
 .photo-pick label:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* A mouse-and-keyboard screen has no camera to jump to: one picker is enough. */
@@ -303,8 +351,9 @@ dialog.camera {
   padding: 0;
   width: min(36rem, 100vw);
   max-width: 100vw;
-  height: min(100dvh, 48rem);
-  max-height: 100dvh;
+  height: min(100vh, 48rem);
+  max-height: 100vh;
+  max-height: -webkit-fill-available;
   margin: auto;
   background: #000;
   color: #fff;
@@ -317,16 +366,18 @@ dialog.camera:not([open]) { display: none; }
 dialog.camera::backdrop { background: rgb(0 0 0 / 80%); }
 .camera-stage { position: relative; flex: 1 1 auto; min-height: 0; background: #000; }
 .camera-stage video { display: block; width: 100%; height: 100%; object-fit: contain; }
-.camera-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.camera-flash { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: #fff; opacity: 0; pointer-events: none; }
 .camera-flash.on { animation: camera-flash 0.25s ease-out; }
 @keyframes camera-flash { from { opacity: 0.7; } to { opacity: 0; } }
 .camera-status { margin: 0; padding: 0.4rem 0.75rem 0; font-size: 0.9rem; color: #ddd; }
-.camera-shots { display: flex; gap: 0.5rem; overflow-x: auto; padding: 0.4rem 0.75rem; min-height: 4rem; }
+.camera-shots { display: flex; overflow-x: auto; padding: 0.4rem 0.75rem; min-height: 4rem; }
+.camera-shots > * + * { margin-left: 0.5rem; }
 .camera-shots .photo-tile { flex: 0 0 5rem; }
 .camera-shots img { width: 5rem; height: 3.75rem; object-fit: cover; border-radius: 6px; border: 1px solid #555; }
 .camera-shots .photo-remove { background: #222; color: #ffb4a4; border-color: #6b3a30; }
-.camera-actions { display: flex; gap: 0.5rem; padding: 0.5rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom)); }
+.camera-actions { display: flex; padding: 0.5rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom)); }
 .camera-actions button { flex: 1 1 0; min-height: 3.25rem; }
+.camera-actions button + button { margin-left: 0.5rem; }
 .camera-actions .camera-shutter { flex: 2 1 0; font-size: 1.1rem; }
 .camera-actions button:not(.primary) { background: #222; color: #fff; border-color: #444; }
 .camera-actions button:disabled { opacity: 0.5; }
@@ -337,16 +388,17 @@ dialog.camera.is-cropping .camera-status,
 dialog.camera.is-cropping .camera-shots,
 dialog.camera.is-cropping .camera-actions { opacity: 0.3; pointer-events: none; }
 @media (max-width: 40rem) {
-  dialog.camera { width: 100vw; height: 100dvh; border-radius: 0; }
+  dialog.camera { width: 100vw; height: 100vh; height: -webkit-fill-available; border-radius: 0; }
 }
 .photo-preview { display: block; max-width: 100%; max-height: 12rem; border-radius: 6px; margin-top: 0.5rem; border: 1px solid var(--line); }
 /* Photos picked on the register form, before they are uploaded (§8.8). */
 .photo-preview-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr)); gap: 0.5rem; margin-top: 0.5rem; }
-.photo-preview-row img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
+.photo-preview-row img { width: 100%; height: 6rem; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
 /* A picked or shot photo not uploaded yet: the image over its "Remove" button. */
-.photo-tile { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.photo-tile { display: flex; flex-direction: column; min-width: 0; }
+.photo-tile > * + * { margin-top: 0.25rem; }
 .photo-tile img { display: block; }
-.photo-remove { width: 100%; padding: 0.25rem 0.4rem; font-size: 0.9rem; color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.photo-remove { width: 100%; padding: 0.25rem 0.4rem; font-size: 0.9rem; color: var(--bad); border-color: var(--bad-line); }
 /* §8.8: the optional crop step. A <dialog> so the phone gets a modal surface and
    Escape/back-gesture handling for free; the stage is sized in viewport units. */
 dialog.crop {
@@ -354,7 +406,8 @@ dialog.crop {
   padding: 0;
   width: min(44rem, 100vw);
   max-width: 100vw;
-  max-height: 100dvh;
+  max-height: 100vh;
+  max-height: -webkit-fill-available;
   margin: auto;
   background: var(--bg);
   color: var(--fg);
@@ -364,7 +417,8 @@ dialog.crop {
 dialog.crop::backdrop { background: rgb(0 0 0 / 62%); }
 .crop-stage { height: min(58vh, 26rem); background: #101112; }
 .crop-stage img { display: block; max-width: 100%; }
-.crop-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem; }
+.crop-actions { display: flex; flex-wrap: wrap; padding: 0.75rem; }
+.crop-actions > * { margin: 0 0.5rem 0.5rem 0; }
 .crop-actions button { flex: 1 1 8rem; }
 
 /* §8.2: the suggestion list of a combo box (category, location). */
@@ -386,10 +440,11 @@ dialog.crop::backdrop { background: rgb(0 0 0 / 62%); }
   overflow: auto;
 }
 .suggest li { margin: 0; padding: 0.5rem 0.6rem; border-radius: 0.35rem; cursor: pointer; }
-.suggest li[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.suggest li[aria-selected="true"] { background: var(--accent-soft-strong); }
 
 /* Who is logged in, and with which role (§8.1). */
-nav .whoami { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; color: var(--muted); }
+nav .whoami { display: inline-flex; align-items: center; font-size: 0.85rem; color: var(--muted); }
+nav .whoami > * + * { margin-left: 0.35rem; }
 nav .whoami-name { color: var(--fg); font-weight: 600; }
 nav .whoami .badge { font-size: 0.7rem; }
 nav .whoami .role-member { color: var(--muted); }
@@ -415,12 +470,14 @@ nav .whoami .role-member { color: var(--muted); }
 @media (max-width: 40rem) {
   :root { --gutter: 0.625rem; }
   .wrap { padding: 0.5rem var(--gutter) calc(2.5rem + env(safe-area-inset-bottom)); }
-  .top { gap: 0.4rem 0.75rem; margin-bottom: 0.85rem; }
+  .top { margin-bottom: 0.85rem; }
+  .top nav + nav { margin-left: 0; }
   .nav-main { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
   .nav-main a { justify-content: center; text-align: center; min-width: 0; white-space: normal; padding: 0.3rem 0.5rem; }
   .top .brand { font-size: 1.4rem; }
   /* Phone: brand, then who/language centered under it, then the menu grid. */
-  .nav-account { order: 2; flex: 1 1 100%; justify-content: center; gap: 0.25rem 0.6rem; }
+  .nav-account { order: 2; flex: 1 1 100%; justify-content: center; }
+  .nav-account > * { margin: 0.125rem 0.3rem; }
   .nav-main { order: 3; flex: 1 1 100%; }
   h1 { font-size: 1.2rem; }
 
@@ -453,7 +510,8 @@ nav .whoami .role-member { color: var(--muted); }
     padding: 0.65rem 0.75rem;
     margin-bottom: 0.5rem;
   }
-  table.list td { border: 0; padding: 0; display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; overflow-wrap: anywhere; }
+  table.list td { border: 0; padding: 0; display: flex; flex-direction: column; min-width: 0; overflow-wrap: break-word; }
+  table.list td > * + * { margin-top: 0.05rem; }
   table.list td::before {
     content: attr(data-label);
     color: var(--muted);
@@ -462,7 +520,7 @@ nav .whoami .role-member { color: var(--muted); }
   table.list td:empty { display: none; }
   table.list td:first-child { grid-column: 1 / -1; font-size: 1.05rem; }
   table.list td:first-child::before { display: none; }
-  table.list td:first-child a::after { content: ""; position: absolute; inset: 0; border-radius: var(--radius); }
+  table.list td:first-child a::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; left: 0; border-radius: var(--radius); }
   table.list td .badge { align-self: flex-start; }
 
   /* Label left, value right: one line per field instead of two. */
@@ -471,8 +529,9 @@ nav .whoami .role-member { color: var(--muted); }
 
   .status-actions { grid-template-columns: repeat(2, 1fr); }
   .qty-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
-  .qty-controls form { display: flex; gap: 0.5rem; }
+  .qty-controls form { display: flex; }
   .qty-controls form > * { flex: 1 1 auto; }
+  .qty-controls form > * + * { margin-left: 0.5rem; }
   .qty-controls form:nth-child(1) { order: 1; }
   .qty-controls form:nth-child(3) { order: 2; }
   .qty-controls form:nth-child(2) { order: 3; grid-column: 1 / -1; }
@@ -488,13 +547,13 @@ nav .whoami .role-member { color: var(--muted); }
     z-index: 5;
     margin: 1rem calc(-1 * var(--gutter)) 0;
     padding: 0.6rem var(--gutter) calc(0.6rem + env(safe-area-inset-bottom));
-    background: color-mix(in srgb, var(--bg) 92%, transparent);
+    background: var(--bg-translucent);
     backdrop-filter: blur(6px);
     border-top: 1px solid var(--line);
   }
   .form-submit button.primary, .form-submit .button { flex: 1 1 0; }
 
-  .code-panel { gap: 0.75rem; }
+  .code-panel > * { margin-right: 0.75rem; }
   .qr { width: 10rem; height: 10rem; }
   .scanner-video { max-height: 55vh; }
 }
